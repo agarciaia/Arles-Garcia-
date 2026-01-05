@@ -1,0 +1,7 @@
+{
+  "name": "Prototipo casi listo del taller mecánico ",
+  "description": "Una aplicación integral para la gestión de talleres mecánicos con asistencia de IA para diagnósticos y búsqueda de repuestos.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
