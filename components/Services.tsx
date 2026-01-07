@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceExpense, AppSettings, ServicePayment } from '../types';
-import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog } from 'lucide-react';
+import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog, FilePenLine, Eraser, Camera, Image as ImageIcon, Share2 } from 'lucide-react';
 
 declare var html2pdf: any;
 
@@ -52,6 +52,17 @@ export default function Services({ services, setServices, settings }: ServicesPr
   const [serviceToComplete, setServiceToComplete] = useState<Service | null>(null);
   const [completionDate, setCompletionDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
+  // --- PHOTO GALLERY STATE ---
+  const [photoServiceId, setPhotoServiceId] = useState<string | null>(null); // To know which service is uploading
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false); // For History/Modal view
+  const [viewingPhotoService, setViewingPhotoService] = useState<Service | null>(null);
+  
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // --- DRAFT STATE ---
+  const [hasDraft, setHasDraft] = useState(false);
+
   // New Service Form State
   const [newService, setNewService] = useState<Partial<Service>>({
     status: 'pending',
@@ -61,7 +72,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
     phone: '+569',
     laborItems: [],
     expenses: [],
-    payments: []
+    payments: [],
+    photos: []
   });
 
   // State for adding specific items inside the modal
@@ -94,6 +106,25 @@ export default function Services({ services, setServices, settings }: ServicesPr
       searchInputRef.current.focus();
     }
   }, [searchOpen]);
+
+  // Check for existing draft on mount
+  useEffect(() => {
+    const draft = localStorage.getItem('service_draft');
+    if (draft) {
+      setHasDraft(true);
+    }
+  }, []);
+
+  // Auto-save draft effect
+  useEffect(() => {
+    if (isModalOpen && !isEditing) {
+      // Only save if there is significant data
+      if (newService.plate || newService.clientName || newService.brand || (newService.laborItems && newService.laborItems.length > 0)) {
+        localStorage.setItem('service_draft', JSON.stringify(newService));
+        setHasDraft(true);
+      }
+    }
+  }, [newService, isModalOpen, isEditing]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -130,6 +161,118 @@ export default function Services({ services, setServices, settings }: ServicesPr
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [activeStatusDropdown, isHistoryFilterOpen]);
 
+  // --- PHOTO HANDLING LOGIC ---
+  const triggerCamera = (serviceId: string) => {
+    setPhotoServiceId(serviceId);
+    if (cameraInputRef.current) {
+        cameraInputRef.current.click();
+    }
+  };
+
+  const triggerGallery = (serviceId: string) => {
+    setPhotoServiceId(serviceId);
+    if (galleryInputRef.current) {
+        galleryInputRef.current.click();
+    }
+  };
+
+  const compressImage = (base64Str: string, maxWidth = 800): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress to 70% quality JPEG
+      };
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && photoServiceId) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+            const rawBase64 = reader.result as string;
+            const compressedBase64 = await compressImage(rawBase64);
+            
+            setServices(prev => prev.map(s => {
+                if (s.id === photoServiceId) {
+                    const currentPhotos = s.photos || [];
+                    const updated = { ...s, photos: [...currentPhotos, compressedBase64] };
+                    if (viewingPhotoService && viewingPhotoService.id === s.id) {
+                        setViewingPhotoService(updated);
+                    }
+                    return updated;
+                }
+                return s;
+            }));
+            
+            // Clear inputs
+            if (cameraInputRef.current) cameraInputRef.current.value = '';
+            if (galleryInputRef.current) galleryInputRef.current.value = '';
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
+  const deletePhoto = (serviceId: string, photoIndex: number) => {
+    if (!confirm('¿Borrar esta foto?')) return;
+    
+    setServices(prev => prev.map(s => {
+        if (s.id === serviceId && s.photos) {
+            const newPhotos = [...s.photos];
+            newPhotos.splice(photoIndex, 1);
+            const updated = { ...s, photos: newPhotos };
+            if (viewingPhotoService && viewingPhotoService.id === s.id) {
+                setViewingPhotoService(updated);
+            }
+            return updated;
+        }
+        return s;
+    }));
+  };
+
+  const sharePhoto = async (base64: string, index: number) => {
+    try {
+        // Convert base64 to blob
+        const res = await fetch(base64);
+        const blob = await res.blob();
+        const file = new File([blob], `foto_taller_${index}.jpg`, { type: blob.type });
+
+        if (navigator.share && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: 'Foto del Servicio',
+                text: 'Adjunto evidencia fotográfica del taller.'
+            });
+        } else {
+            alert('Tu navegador no soporta la función de compartir archivos directamente.');
+        }
+    } catch (e) {
+        console.error('Error sharing photo:', e);
+        alert('Error al intentar compartir la imagen.');
+    }
+  };
+
+  const openPhotoGallery = (service: Service) => {
+    setViewingPhotoService(service);
+    setIsPhotoModalOpen(true);
+  };
+  // ---------------------------
+
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setTimeout(() => {
       e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -158,12 +301,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
     const advanceAmount = Number(newService.advance) || 0;
     const entryDate = newService.entryDate || new Date().toISOString();
 
-    // --- PAYMENT LOGIC (ADVANCE) ---
-    // If there is an advance, we must record it as a payment of type 'advance'
-    // This allows the dashboard to see "Adelanto de patente X" on the specific day.
     let currentPayments = newService.payments ? [...newService.payments] : [];
     
-    // Remove existing advance payment if we are editing (to overwrite it with new amount/date)
     currentPayments = currentPayments.filter(p => p.type !== 'advance');
 
     if (advanceAmount > 0) {
@@ -175,7 +314,6 @@ export default function Services({ services, setServices, settings }: ServicesPr
         description: `Adelanto de Patente ${newService.plate.toUpperCase()}`
       });
     }
-    // -------------------------------
 
     const serviceData: Service = {
       id: newService.id || Math.random().toString(36).substr(2, 9),
@@ -190,6 +328,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
       price: totalLabor,
       advance: advanceAmount,
       payments: currentPayments,
+      photos: newService.photos || [],
       entryDate: entryDate,
       status: (newService.status as any) || 'pending',
     };
@@ -198,6 +337,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
       setServices(prev => prev.map(s => s.id === newService.id ? serviceData : s));
     } else {
       setServices(prev => [serviceData, ...prev]);
+      localStorage.removeItem('service_draft');
+      setHasDraft(false);
     }
 
     setIsModalOpen(false);
@@ -271,14 +412,11 @@ export default function Services({ services, setServices, settings }: ServicesPr
   const confirmCompletion = () => {
     if (!serviceToComplete) return;
 
-    // Calculate final balance
     const total = calculateTotal(serviceToComplete);
-    // Sum of all PREVIOUS payments (advances)
     const paid = (serviceToComplete.payments || [])
         .filter(p => p.type === 'advance')
         .reduce((acc, curr) => acc + curr.amount, 0);
         
-    // Legacy support: check service.advance if payments empty
     const legacyPaid = (!serviceToComplete.payments || serviceToComplete.payments.length === 0) ? (serviceToComplete.advance || 0) : 0;
     
     const finalPaid = paid > 0 ? paid : legacyPaid;
@@ -292,7 +430,6 @@ export default function Services({ services, setServices, settings }: ServicesPr
         description: `Saldo Final Patente ${serviceToComplete.plate.toUpperCase()}`
     };
 
-    // Keep existing payments (advances) and add final payment
     const updatedPayments = [...(serviceToComplete.payments || [])];
     if (remainder > 0) {
         updatedPayments.push(newPayment);
@@ -330,7 +467,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
       ...service, 
       laborItems: laborItems,
       expenses: service.expenses || [],
-      payments: service.payments || []
+      payments: service.payments || [],
+      photos: service.photos || []
     });
     setIsEditing(true);
     setFoundExistingCar(true);
@@ -346,7 +484,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
       phone: '+569',
       laborItems: [],
       expenses: [],
-      payments: []
+      payments: [],
+      photos: []
     });
     setTempLabor({ description: '', amount: '' });
     setTempExpense({ description: '', amount: '' });
@@ -356,6 +495,28 @@ export default function Services({ services, setServices, settings }: ServicesPr
     setShowSuggestions(false);
     setBrandSuggestions([]);
     setShowBrandSuggestions(false);
+  };
+
+  const loadDraft = () => {
+    const draft = localStorage.getItem('service_draft');
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft);
+        setNewService(parsed);
+        setIsEditing(false);
+        setIsModalOpen(true);
+      } catch (e) {
+        console.error("Error loading draft", e);
+      }
+    }
+  };
+
+  const discardDraft = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if(confirm('¿Estás seguro de eliminar el borrador?')) {
+      localStorage.removeItem('service_draft');
+      setHasDraft(false);
+    }
   };
 
   const clearAutoFill = () => {
@@ -370,7 +531,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
       reason: '',
       laborItems: [],
       expenses: [],
-      payments: []
+      payments: [],
+      photos: []
     }));
     setFoundExistingCar(false);
     setIsEditing(false);
@@ -508,19 +670,21 @@ export default function Services({ services, setServices, settings }: ServicesPr
       });
     }
 
-    // Enhanced Vehicle Info string
     const vehicleInfo = `🚗 ${service.brand} ${service.model}\n🔢 Patente: ${service.plate}\n📅 Fecha: ${new Date(service.entryDate).toLocaleDateString()}`;
 
     let msg = settings.whatsappServiceTemplate;
     msg = msg.replace('{taller}', settings.companyName);
     msg = msg.replace('{cliente}', service.clientName);
-    // Replace {vehiculo} with our enhanced string containing Plate, Brand, Date
     msg = msg.replace('{vehiculo}', vehicleInfo);
     msg = msg.replace('{estado}', getStatusLabel(service.status));
     msg = msg.replace('{total}', total.toLocaleString('es-CL'));
     msg = msg.replace('{abono}', (service.advance || 0).toLocaleString('es-CL'));
     msg = msg.replace('{saldo}', remaining.toLocaleString('es-CL'));
     msg = msg.replace('{detalle}', detailStr);
+
+    if (service.photos && service.photos.length > 0) {
+        msg += `\n\n📷 *Adjunto:* Se envían evidencias fotográficas del servicio.`;
+    }
 
     return { text: msg, phone: cleanPhone };
   };
@@ -581,6 +745,23 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
   return (
     <div className="space-y-6">
+      {/* Hidden file inputs for photo uploads */}
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment"
+        ref={cameraInputRef} 
+        className="hidden" 
+        onChange={handleFileChange} 
+      />
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={galleryInputRef} 
+        className="hidden" 
+        onChange={handleFileChange} 
+      />
+
       <div className="flex flex-col gap-4">
         {/* ... (Existing view header, no changes) ... */}
         <div className="flex justify-between items-center">
@@ -618,12 +799,21 @@ export default function Services({ services, setServices, settings }: ServicesPr
             {showHistory ? <ArrowRight size={18} /> : <History size={18} />}{showHistory ? 'Volver a Activos' : 'Ver Historial'}
           </button>
           {!showHistory && (
-            <button onClick={() => { setIsModalOpen(true); resetForm(); }} className={`flex-1 ${getButtonColor()} text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-lg`}><Plus size={20} />Crear</button>
+            <div className="flex-1 flex gap-2">
+                {hasDraft && (
+                  <button onClick={loadDraft} className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-lg animate-fade-in" title="Recuperar trabajo no guardado">
+                    <FilePenLine size={20} /> <span className="hidden sm:inline">Continuar Borrador</span>
+                    <div onClick={discardDraft} className="p-1 hover:bg-yellow-800 rounded-full ml-1" title="Descartar borrador"><X size={14}/></div>
+                  </button>
+                )}
+                <button onClick={() => { setIsModalOpen(true); resetForm(); }} className={`flex-1 ${getButtonColor()} text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors shadow-lg`}><Plus size={20} />Crear</button>
+            </div>
           )}
         </div>
       </div>
 
       {/* ... (Existing services lists) ... */}
+      
       {!showHistory && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
           {displayedServices.length === 0 ? (
@@ -657,6 +847,30 @@ export default function Services({ services, setServices, settings }: ServicesPr
                   {isExpanded && (
                     <div className="px-4 pb-4 animate-fade-in space-y-4 border-t border-slate-700/50 pt-4 cursor-default" onClick={(e) => e.stopPropagation()}>
                       <div><span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Motivo del trabajo</span><div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 text-slate-300 text-sm leading-relaxed">{service.reason}</div></div>
+                      
+                      {/* Photo Section for Active Services */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Evidencia Fotográfica</span>
+                           <div className="flex gap-1">
+                               <button onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors" title="Cámara"><Camera size={12}/></button>
+                               <button onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors" title="Galería"><ImageIcon size={12}/></button>
+                           </div>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            {service.photos && service.photos.length > 0 ? (
+                                service.photos.map((photo, idx) => (
+                                    <div key={idx} className="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden border border-slate-700 group/photo">
+                                        <img src={photo} alt="Evidencia" className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); openPhotoGallery(service); }}/>
+                                        <button onClick={(e) => { e.stopPropagation(); deletePhoto(service.id, idx); }} className="absolute top-0 right-0 p-1 bg-black/50 text-white opacity-0 group-hover/photo:opacity-100 hover:text-red-400 transition-opacity"><X size={12}/></button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-xs text-slate-500 italic bg-slate-900/30 p-2 rounded w-full">Sin fotos adjuntas</div>
+                            )}
+                        </div>
+                      </div>
+
                       <div>
                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Desglose Financiero</span>
                          <div className="bg-slate-900/30 rounded-lg border border-slate-700/30 overflow-hidden text-sm">
@@ -727,8 +941,13 @@ export default function Services({ services, setServices, settings }: ServicesPr
                     <div className="flex items-center justify-between md:justify-end gap-4 mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-0 border-slate-700 w-full md:w-auto">
                        <div className="text-right"><div className="text-xs text-slate-500 uppercase tracking-wider">Total</div><div className="text-xl font-bold text-white">${calculateTotal(service).toLocaleString('es-CL')}</div></div>
                        <div className="flex gap-2">
-                          {service.status === 'cancelled' && (<button onClick={() => { if(window.confirm('¿Deseas reactivar este servicio?')) { handleStatusChange(service.id, 'pending'); } }} className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-blue-400 hover:bg-blue-600 hover:text-white border border-slate-600"><RefreshCw size={20} /></button>)}
-                          <button onClick={() => openPrintPreview(service)} className={`w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-slate-300 border border-slate-600 ${service.status !== 'cancelled' ? 'hover:bg-blue-600 hover:text-white' : ''}`}><FileText size={20} /></button>
+                          {service.status === 'cancelled' && (<button onClick={() => { if(window.confirm('¿Deseas reactivar este servicio?')) { handleStatusChange(service.id, 'pending'); } }} className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-blue-400 hover:bg-blue-600 hover:text-white border border-slate-600" title="Reactivar"><RefreshCw size={20} /></button>)}
+                          <button onClick={(e) => { e.stopPropagation(); openPhotoGallery(service); }} className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-orange-400 hover:bg-orange-600 hover:text-white border border-slate-600 relative" title="Fotos">
+                              <ImageIcon size={20} />
+                              {service.photos && service.photos.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center">{service.photos.length}</span>}
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleWhatsAppClick(service); }} className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-green-500 hover:bg-green-600 hover:text-white border border-slate-600" title="Enviar WhatsApp"><MessageCircle size={20} /></button>
+                          <button onClick={() => openPrintPreview(service)} className={`w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-slate-300 border border-slate-600 ${service.status !== 'cancelled' ? 'hover:bg-blue-600 hover:text-white' : ''}`} title="Ver PDF"><FileText size={20} /></button>
                        </div>
                     </div>
                  </div>
@@ -791,6 +1010,52 @@ export default function Services({ services, setServices, settings }: ServicesPr
                 </div>
              </div>
           </div>
+        </div>
+      )}
+
+      {/* Photo Gallery Modal (For History and Detail View) */}
+      {isPhotoModalOpen && viewingPhotoService && (
+        <div className="relative z-[60]">
+           <div className="fixed inset-0 bg-black/90 backdrop-blur-md transition-opacity" onClick={() => setIsPhotoModalOpen(false)} />
+           <div className="fixed inset-0 z-[70] flex flex-col p-4">
+              <div className="flex justify-between items-center mb-4 shrink-0">
+                 <h3 className="text-xl font-bold text-white flex items-center gap-2"><ImageIcon size={24} className="text-blue-500"/> Galería: {viewingPhotoService.brand} {viewingPhotoService.plate}</h3>
+                 <button onClick={() => setIsPhotoModalOpen(false)} className="p-2 bg-slate-800 rounded-full text-slate-300 hover:text-white"><X size={24} /></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto bg-slate-900/50 rounded-2xl border border-slate-800 p-4">
+                  {(!viewingPhotoService.photos || viewingPhotoService.photos.length === 0) ? (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-4">
+                          <Camera size={48} className="opacity-20"/>
+                          <p>No hay fotos registradas para este servicio.</p>
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {viewingPhotoService.photos.map((photo, idx) => (
+                              <div key={idx} className="relative group rounded-xl overflow-hidden aspect-square bg-black border border-slate-800 shadow-xl">
+                                  <img src={photo} className="w-full h-full object-contain" alt={`Foto ${idx+1}`} />
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                      <button onClick={() => sharePhoto(photo, idx)} className="p-2 bg-green-600 rounded-full text-white hover:bg-green-500" title="Compartir"><Share2 size={20}/></button>
+                                      <a href={photo} download={`evidencia_${viewingPhotoService.plate}_${idx}.jpg`} className="p-2 bg-blue-600 rounded-full text-white hover:bg-blue-500" title="Descargar"><Download size={20}/></a>
+                                      <button onClick={() => deletePhoto(viewingPhotoService.id, idx)} className="p-2 bg-red-600 rounded-full text-white hover:bg-red-500" title="Borrar"><Trash2 size={20}/></button>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+
+              <div className="mt-4 shrink-0 flex justify-center gap-4">
+                   <button onClick={() => triggerCamera(viewingPhotoService.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-900/50 transition-all active:scale-95">
+                       <Camera size={20} />
+                       <span>Cámara</span>
+                   </button>
+                   <button onClick={() => triggerGallery(viewingPhotoService.id)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95">
+                       <ImageIcon size={20} />
+                       <span>Galería</span>
+                   </button>
+              </div>
+           </div>
         </div>
       )}
 
@@ -877,6 +1142,21 @@ export default function Services({ services, setServices, settings }: ServicesPr
                         </tbody>
                      </table>
                    </div>
+
+                   {/* PDF Images Section */}
+                   {printService.photos && printService.photos.length > 0 && (
+                       <div className="mb-8 break-inside-avoid">
+                           <h3 className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider border-b border-slate-200 pb-1">Evidencia Fotográfica</h3>
+                           <div className="grid grid-cols-2 gap-4">
+                               {printService.photos.map((photo, idx) => (
+                                   <div key={idx} className="border border-slate-200 p-1 rounded">
+                                       <img src={photo} className="w-full h-48 object-contain" alt="Evidencia" />
+                                   </div>
+                               ))}
+                           </div>
+                       </div>
+                   )}
+
                    <div className="flex flex-row justify-end items-start mb-16 break-inside-avoid">
                       <div className="w-64">
                          <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(calculateTotal(printService))}</span></div>

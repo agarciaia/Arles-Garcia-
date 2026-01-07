@@ -30,6 +30,9 @@ export interface Service {
   advance?: number;
   payments?: ServicePayment[]; // New field for detailed payment tracking
   
+  // Media
+  photos?: string[]; // Array of base64 strings
+  
   entryDate: string;
   status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
 }

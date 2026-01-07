@@ -91,7 +91,7 @@ function App() {
   const renderView = () => {
     switch(currentView) {
       case AppView.DASHBOARD:
-        return <Dashboard services={services} costs={costs} />;
+        return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
       case AppView.SERVICES:
         return <Services services={services} setServices={setServices} settings={settings} />;
       case AppView.QUOTES:
@@ -110,7 +110,7 @@ function App() {
           setQuotes={setQuotes}     
         />;
       default:
-        return <Dashboard services={services} costs={costs} />;
+        return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
     }
   };
 
