@@ -17,7 +17,7 @@ const defaultSettings: AppSettings = {
   companyName: 'Yahveh Jireh',
   companyAddress: 'Quiriquina 3738, Comuna Lo Espejo',
   companyPhone: '+56 9 5795 1027',
-  whatsappServiceTemplate: '*TALLER: {taller}*\n\nHola {cliente}, tu vehículo {vehiculo} está actualmente en estado: *{estado}*.\n\n💰 Total: ${total}\n💳 Abono: ${abono}\n❗ Pendiente: ${saldo}\n\nDetalles:\n{detalle}',
+  whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en Taller {taller}',
   whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
 };
 

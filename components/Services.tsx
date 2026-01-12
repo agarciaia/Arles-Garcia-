@@ -654,37 +654,45 @@ export default function Services({ services, setServices, settings }: ServicesPr
     const legacyLaborAmount = service.price;
     const hasDetailedLabor = labor.length > 0;
     
-    detailStr += `🔧 *Mano de Obra:*\n`;
+    detailStr += `👷 *Mano de Obra:*\n`;
     if (hasDetailedLabor) {
        labor.forEach(item => {
-          detailStr += `- ${item.description}: $${item.amount.toLocaleString('es-CL')}\n`;
+          detailStr += `${item.description}: $${item.amount.toLocaleString('es-CL')}\n`;
        });
     } else {
-       detailStr += `- Mano de Obra Base: $${legacyLaborAmount.toLocaleString('es-CL')}\n`;
+       detailStr += `Mano de Obra Base: $${legacyLaborAmount.toLocaleString('es-CL')}\n`;
     }
 
     if (expenses.length > 0) {
-      detailStr += `\n⚙️ *Repuestos/Insumos:*\n`;
+      detailStr += `\n🔩 *Repuestos / Insumos:*\n`;
       expenses.forEach(exp => {
-        detailStr += `- ${exp.description}: $${exp.amount.toLocaleString('es-CL')}\n`;
+        detailStr += `${exp.description}: $${exp.amount.toLocaleString('es-CL')}\n`;
       });
     }
+
+    // New specific variables
+    const marcaModelo = `${service.brand} ${service.model}`;
+    const fechaActual = new Date().toLocaleDateString('es-CL');
 
     const vehicleInfo = `🚗 ${service.brand} ${service.model}\n🔢 Patente: ${service.plate}\n📅 Fecha: ${new Date(service.entryDate).toLocaleDateString()}`;
 
     let msg = settings.whatsappServiceTemplate;
-    msg = msg.replace('{taller}', settings.companyName);
-    msg = msg.replace('{cliente}', service.clientName);
-    msg = msg.replace('{vehiculo}', vehicleInfo);
-    msg = msg.replace('{estado}', getStatusLabel(service.status));
-    msg = msg.replace('{total}', total.toLocaleString('es-CL'));
-    msg = msg.replace('{abono}', (service.advance || 0).toLocaleString('es-CL'));
-    msg = msg.replace('{saldo}', remaining.toLocaleString('es-CL'));
-    msg = msg.replace('{detalle}', detailStr);
+    msg = msg.replace(/{taller}/g, settings.companyName);
+    msg = msg.replace(/{cliente}/g, service.clientName);
+    
+    // New placeholders
+    msg = msg.replace(/{marca_modelo}/g, marcaModelo);
+    msg = msg.replace(/{patente}/g, service.plate);
+    msg = msg.replace(/{fecha}/g, fechaActual);
 
-    if (service.photos && service.photos.length > 0) {
-        msg += `\n\n📷 *Adjunto:* Se envían evidencias fotográficas del servicio.`;
-    }
+    // Legacy fallback
+    msg = msg.replace(/{vehiculo}/g, vehicleInfo);
+    
+    msg = msg.replace(/{estado}/g, getStatusLabel(service.status).toUpperCase());
+    msg = msg.replace(/{total}/g, total.toLocaleString('es-CL'));
+    msg = msg.replace(/{abono}/g, (service.advance || 0).toLocaleString('es-CL'));
+    msg = msg.replace(/{saldo}/g, remaining.toLocaleString('es-CL'));
+    msg = msg.replace(/{detalle}/g, detailStr);
 
     return { text: msg, phone: cleanPhone };
   };
@@ -850,23 +858,27 @@ export default function Services({ services, setServices, settings }: ServicesPr
                       
                       {/* Photo Section for Active Services */}
                       <div>
-                        <div className="flex justify-between items-center mb-1">
+                        <div className="flex justify-between items-center mb-2">
                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Evidencia Fotográfica</span>
-                           <div className="flex gap-1">
-                               <button onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors" title="Cámara"><Camera size={12}/></button>
-                               <button onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded flex items-center gap-1 transition-colors" title="Galería"><ImageIcon size={12}/></button>
-                           </div>
                         </div>
-                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        <div className="flex gap-2 mb-3">
+                            <button onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                <Camera size={16} /> <span className="text-xs font-bold">Cámara</span>
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="flex-1 bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 border border-slate-600/30 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                <ImageIcon size={16} /> <span className="text-xs font-bold">Galería</span>
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                             {service.photos && service.photos.length > 0 ? (
                                 service.photos.map((photo, idx) => (
-                                    <div key={idx} className="relative w-20 h-20 shrink-0 rounded-lg overflow-hidden border border-slate-700 group/photo">
-                                        <img src={photo} alt="Evidencia" className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); openPhotoGallery(service); }}/>
-                                        <button onClick={(e) => { e.stopPropagation(); deletePhoto(service.id, idx); }} className="absolute top-0 right-0 p-1 bg-black/50 text-white opacity-0 group-hover/photo:opacity-100 hover:text-red-400 transition-opacity"><X size={12}/></button>
+                                    <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-slate-700 group/photo bg-slate-900">
+                                        <img src={photo} alt="Evidencia" className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); openPhotoGallery(service); }}/>
+                                        <button onClick={(e) => { e.stopPropagation(); deletePhoto(service.id, idx); }} className="absolute top-1 right-1 p-1 bg-black/50 rounded-full text-white opacity-0 group-hover/photo:opacity-100 hover:bg-red-600 hover:text-white transition-all"><X size={12}/></button>
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-xs text-slate-500 italic bg-slate-900/30 p-2 rounded w-full">Sin fotos adjuntas</div>
+                                <div className="col-span-3 sm:col-span-4 text-xs text-slate-500 italic bg-slate-900/30 p-4 rounded-lg border border-dashed border-slate-800 text-center">Sin fotos adjuntas</div>
                             )}
                         </div>
                       </div>
@@ -1149,8 +1161,12 @@ export default function Services({ services, setServices, settings }: ServicesPr
                            <h3 className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider border-b border-slate-200 pb-1">Evidencia Fotográfica</h3>
                            <div className="grid grid-cols-2 gap-4">
                                {printService.photos.map((photo, idx) => (
-                                   <div key={idx} className="border border-slate-200 p-1 rounded">
-                                       <img src={photo} className="w-full h-48 object-contain" alt="Evidencia" />
+                                   <div key={idx} className="border border-slate-200 p-2 rounded-lg flex items-center justify-center h-64 bg-slate-50">
+                                       <img 
+                                           src={photo} 
+                                           className="max-w-full max-h-full w-auto h-auto object-contain shadow-sm" 
+                                           alt="Evidencia" 
+                                       />
                                    </div>
                                ))}
                            </div>
