@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Quote, QuoteItem, AppSettings, Service, AppView } from '../types';
-import { Plus, Search, FileText, Printer, MessageCircle, Trash2, X, DollarSign, Calendar, User, Car, Edit, ChevronRight, Hash, Download, Share2, Save, Hammer, Box, RotateCcw, ChevronDown, Wrench, CheckCircle, UserCog, ArrowRightCircle, Ban, Check, AlertTriangle } from 'lucide-react';
+import { Plus, Search, FileText, Printer, MessageCircle, Trash2, X, DollarSign, Calendar, User, Car, Edit, ChevronRight, Hash, Download, Share2, Save, Hammer, Box, RotateCcw, ChevronDown, Wrench, CheckCircle, UserCog, ArrowRightCircle, Ban, Check, AlertTriangle, Percent } from 'lucide-react';
 
 declare var html2pdf: any;
 
@@ -44,7 +44,10 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
     expenseItems: [],
     validityDays: 15,
     notes: '',
-    status: 'pending'
+    status: 'pending',
+    laborDiscount: 0,
+    laborDiscountType: 'percent',
+    laborDiscountReason: ''
   });
 
   // Separate fields for easier editing
@@ -202,9 +205,22 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
   };
 
   const calculateTotal = (quote: Partial<Quote>) => {
-    const labor = (quote.laborItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
+    const rawLabor = (quote.laborItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
+    const discount = quote.laborDiscount || 0;
+    
+    let discountAmount = 0;
+    if (quote.laborDiscountType === 'fixed') {
+        discountAmount = discount;
+    } else {
+        discountAmount = Math.round(rawLabor * (discount / 100));
+    }
+    // Cap discount
+    discountAmount = Math.min(discountAmount, rawLabor);
+    
+    const finalLabor = rawLabor - discountAmount;
+
     const expenses = (quote.expenseItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
-    return labor + expenses;
+    return finalLabor + expenses;
   };
 
   const generateQuoteId = (): string => {
@@ -235,7 +251,10 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
       notes: formData.notes,
       validityDays: formData.validityDays || 15,
       total,
-      status: (formData.status as any) || 'pending'
+      status: (formData.status as any) || 'pending',
+      laborDiscount: formData.laborDiscount || 0,
+      laborDiscountType: formData.laborDiscountType || 'percent',
+      laborDiscountReason: formData.laborDiscountReason || ''
     };
 
     if (currentQuote) {
@@ -306,7 +325,10 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
         advance: 0,
         payments: [],
         entryDate: new Date().toISOString(),
-        status: 'pending'
+        status: 'pending',
+        laborDiscount: quote.laborDiscount || 0, // Pass discount to service
+        laborDiscountType: quote.laborDiscountType || 'percent',
+        laborDiscountReason: quote.laborDiscountReason || ''
     };
 
     // 4. ACTUALIZAR ESTADO COTIZACIÓN
@@ -347,13 +369,32 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
           setPlateInput(quote.vehicle);
       }
       setCurrentQuote(quote);
-      setFormData({ ...quote, laborItems, expenseItems });
+      setFormData({ 
+          ...quote, 
+          laborItems, 
+          expenseItems, 
+          laborDiscount: quote.laborDiscount || 0, 
+          laborDiscountType: quote.laborDiscountType || 'percent',
+          laborDiscountReason: quote.laborDiscountReason || '' 
+      });
     } else {
       setCurrentQuote(null);
       setPlateInput('');
       setBrandInput('');
       setModelInput('');
-      setFormData({ clientName: '', phone: '+569', vehicle: '', laborItems: [], expenseItems: [], validityDays: 15, notes: '', status: 'pending' });
+      setFormData({ 
+          clientName: '', 
+          phone: '+569', 
+          vehicle: '', 
+          laborItems: [], 
+          expenseItems: [], 
+          validityDays: 15, 
+          notes: '', 
+          status: 'pending', 
+          laborDiscount: 0,
+          laborDiscountType: 'percent', 
+          laborDiscountReason: '' 
+      });
     }
     setFoundExistingCar(false);
     setIsModalOpen(true);
@@ -373,12 +414,17 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
   const generateWhatsAppText = (quote: Quote) => {
     const cleanPhone = quote.phone?.replace(/[^0-9]/g, '') || '';
     let detailStr = '';
+    let rawLabor = 0;
+
     if (quote.laborItems && quote.laborItems.length > 0) {
         detailStr += `🔧 *Mano de Obra:*\n`;
         quote.laborItems.forEach(i => {
-            detailStr += `- ${i.quantity}x ${i.description}: $${formatCLP(i.unitPrice * i.quantity)}\n`;
+            const amount = i.unitPrice * i.quantity;
+            rawLabor += amount;
+            detailStr += `- ${i.quantity}x ${i.description}: $${formatCLP(amount)}\n`;
         });
     }
+
     const items = quote.expenseItems || quote.items || [];
     if (items.length > 0) {
         detailStr += `\n⚙️ *Repuestos/Insumos:*\n`;
@@ -386,6 +432,33 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
             detailStr += `- ${i.quantity}x ${i.description}: $${formatCLP(i.unitPrice * i.quantity)}\n`;
         });
     }
+
+    // --- Discount Logic for WhatsApp ---
+    const expensesTotal = items.reduce((a,c)=>a + c.unitPrice*c.quantity, 0);
+    const subtotal = rawLabor + expensesTotal;
+    
+    let discountAmount = 0;
+    let discountText = '';
+    if (quote.laborDiscount && quote.laborDiscount > 0) {
+        if (quote.laborDiscountType === 'fixed') {
+            discountAmount = quote.laborDiscount;
+            discountText = `$${discountAmount.toLocaleString('es-CL')}`;
+        } else {
+            discountAmount = Math.round(rawLabor * (quote.laborDiscount / 100));
+            discountText = `${quote.laborDiscount}%`;
+        }
+        discountAmount = Math.min(discountAmount, rawLabor);
+    }
+
+    const finalTotal = subtotal - discountAmount;
+    let totalString = `$${finalTotal.toLocaleString('es-CL')}`;
+
+    if (discountAmount > 0) {
+        totalString = `\n   Subtotal: $${subtotal.toLocaleString('es-CL')}\n   Descuento (${discountText}): -$${discountAmount.toLocaleString('es-CL')}`;
+        if (quote.laborDiscountReason) totalString += ` (${quote.laborDiscountReason})`;
+        totalString += `\n   Total a Pagar: $${finalTotal.toLocaleString('es-CL')}`;
+    }
+
     const parts = quote.vehicle.split(' ');
     const plate = parts.length > 0 ? parts[parts.length - 1] : 'S/P';
     const brandModel = parts.slice(0, parts.length - 1).join(' ');
@@ -397,7 +470,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
     msg = msg.replace('{cliente}', quote.clientName);
     msg = msg.replace('{vehiculo}', vehicleInfo);
     msg = msg.replace('{detalle}', detailStr);
-    msg = msg.replace('{total}', formatCLP(quote.total));
+    msg = msg.replace('{total}', totalString);
     msg = msg.replace('{dias}', quote.validityDays.toString());
 
     return { text: msg, phone: cleanPhone };
@@ -496,6 +569,16 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
            const isRejected = quote.status === 'rejected';
            const isAccepted = quote.status === 'accepted';
            const isPending = !quote.status || quote.status === 'pending';
+           
+           const rawLabor = (quote.laborItems || []).reduce((a,c)=>a + c.unitPrice*c.quantity, 0);
+           const discountVal = quote.laborDiscount || 0;
+           let discountAmount = 0;
+           if (quote.laborDiscountType === 'fixed') {
+                discountAmount = discountVal;
+           } else {
+                discountAmount = Math.round(rawLabor * (discountVal / 100));
+           }
+           discountAmount = Math.min(discountAmount, rawLabor);
 
            return (
             <div key={quote.id} className={`bg-slate-900 border ${isRejected ? 'border-red-900/30' : isAccepted ? 'border-green-900/30' : 'border-slate-800'} rounded-2xl overflow-hidden flex flex-col shadow-sm transition-all relative`}>
@@ -531,7 +614,9 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
                 <div className={`p-4 flex-1 text-sm ${isRejected ? 'opacity-50' : 'text-slate-400'}`}>
                 <div className="flex justify-between border-b border-slate-800 pb-2 mb-2">
                     <span>Mano de Obra:</span>
-                    <span className="text-slate-200">${formatCLP((quote.laborItems || []).reduce((a,c)=>a + c.unitPrice*c.quantity, 0))}</span>
+                    <span className="text-slate-200">
+                        ${formatCLP(rawLabor - discountAmount)}
+                    </span>
                 </div>
                 <div className="flex justify-between">
                     <span>Repuestos/Otros:</span>
@@ -620,7 +705,49 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
                    </div>
 
                    <div className="space-y-3">
-                      <label className="text-sm font-bold text-blue-400 flex items-center gap-2 uppercase tracking-wide"><Hammer size={16} /> Mano de Obra (Ganancia)</label>
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                          <label className="text-sm font-bold text-blue-400 flex items-center gap-2 uppercase tracking-wide"><Hammer size={16} /> Mano de Obra (Ganancia)</label>
+                          <div className="flex items-center gap-2">
+                              <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                                  <button 
+                                    type="button"
+                                    onClick={() => setFormData({...formData, laborDiscountType: 'percent', laborDiscount: 0})}
+                                    className={`px-2 py-1 rounded text-xs font-bold transition-colors ${formData.laborDiscountType !== 'fixed' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                  >%</button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => setFormData({...formData, laborDiscountType: 'fixed', laborDiscount: 0})}
+                                    className={`px-2 py-1 rounded text-xs font-bold transition-colors ${formData.laborDiscountType === 'fixed' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                  >$</button>
+                              </div>
+                              <label className="text-xs text-slate-400">Descuento</label>
+                              <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    inputMode="numeric"
+                                    className="w-20 bg-slate-800 border border-slate-700 rounded-lg p-1 text-white text-center text-sm focus:border-green-500 outline-none" 
+                                    placeholder="0" 
+                                    value={formData.laborDiscount === 0 ? '' : (formData.laborDiscountType === 'fixed' ? formatCLP(formData.laborDiscount || 0) : formData.laborDiscount)} 
+                                    onChange={e => {
+                                        let val = parseInt(e.target.value.replace(/\./g, '').replace(/\D/g, '')) || 0;
+                                        if (formData.laborDiscountType !== 'fixed') {
+                                            val = Math.min(100, Math.max(0, val));
+                                        }
+                                        setFormData({...formData, laborDiscount: val === 0 ? undefined : val});
+                                    }} 
+                                />
+                                {formData.laborDiscount && formData.laborDiscount > 0 ? (
+                                    <input 
+                                        type="text" 
+                                        className="w-32 bg-slate-800 border border-slate-700 rounded-lg p-1 text-white text-sm focus:border-green-500 outline-none placeholder-slate-500" 
+                                        placeholder="Razón..." 
+                                        value={formData.laborDiscountReason || ''} 
+                                        onChange={e => setFormData({...formData, laborDiscountReason: e.target.value})} 
+                                    />
+                                ) : null}
+                              </div>
+                          </div>
+                      </div>
                       <div className="flex flex-col sm:flex-row gap-2">
                          <div className="flex gap-2">
                             <input type="number" min="1" className="w-16 bg-slate-800 border border-slate-700 rounded-lg p-2 text-white text-center text-sm" placeholder="Cant." value={tempLabor.quantity} onChange={e => setTempLabor({...tempLabor, quantity: parseInt(e.target.value) || 1})} onFocus={handleInputFocus} />
@@ -665,7 +792,12 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
 
                    <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex justify-between items-center">
                       <span className="text-slate-400 font-bold">Total Cotización</span>
-                      <span className="text-xl font-bold text-white">${formatCLP(calculateTotal(formData))}</span>
+                      <div className="flex flex-col items-end">
+                          <span className="text-xl font-bold text-white">${formatCLP(calculateTotal(formData))}</span>
+                          {formData.laborDiscount && formData.laborDiscount > 0 ? (
+                              <span className="text-xs text-green-400">Incluye descuento M.O del {formData.laborDiscountType === 'fixed' ? `$${formatCLP(formData.laborDiscount)}` : `${formData.laborDiscount}%`}</span>
+                          ) : null}
+                      </div>
                    </div>
                 </div>
 
@@ -730,102 +862,145 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
           </div>
 
           <div className="flex-1 overflow-auto bg-slate-950 p-4 flex justify-center items-start print:p-0 print:overflow-visible print:block" ref={previewContainerRef}>
-             <div id="printable-quote" className="bg-white text-black shadow-2xl origin-top print:shadow-none print:transform-none"
+             <div id="printable-quote" className="bg-white text-slate-900 shadow-2xl origin-top print:shadow-none print:transform-none"
                 style={{ width: '210mm', minHeight: '297mm', transform: `scale(${scale})`, marginBottom: `${(297 * scale) - 297}mm` }}>
                 <div className="p-12 h-full flex flex-col relative box-border print:p-0 print:m-12">
-                   <div className="flex justify-between items-start border-b-2 border-slate-800 pb-6 mb-8">
-                      <div className="flex items-start gap-4">
+                   
+                   {/* Header */}
+                   <div className="flex justify-between items-center border-b-4 border-blue-600 pb-8 mb-8">
+                      <div className="flex items-center gap-6">
                          {settings.logoUrl ? (
-                            <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-lg bg-white" />
+                            <img src={settings.logoUrl} alt="Logo" className="w-20 h-20 object-contain rounded-lg" />
                          ) : (
-                            <div className="w-16 h-16 bg-slate-900 text-white flex items-center justify-center rounded-lg print:border print:border-slate-900 print:text-slate-900 print:bg-white"><Car size={32} /></div>
+                            <div className="w-20 h-20 bg-blue-600 text-white flex items-center justify-center rounded-lg"><Car size={40} /></div>
                          )}
                          <div>
-                            <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase">{settings.companyName}</h1>
-                            <div className="mt-2 text-xs text-slate-500 space-y-0.5"><p>{settings.companyAddress}</p><p>{settings.companyPhone}</p></div>
+                            <h1 className="text-3xl font-black text-slate-950 tracking-tighter uppercase">{settings.companyName}</h1>
+                            <div className="mt-2 text-sm text-slate-600 space-y-0.5 font-medium"><p>{settings.companyAddress}</p><p>{settings.companyPhone}</p></div>
                          </div>
                       </div>
                       <div className="text-right">
-                         <h2 className="text-3xl font-bold text-slate-800 uppercase tracking-wide">COTIZACIÓN</h2>
-                         <p className="font-mono text-lg font-bold text-slate-600">#{currentQuote.id.toUpperCase()}</p>
+                         <h2 className="text-4xl font-black text-blue-600 uppercase tracking-tighter">Cotización</h2>
+                         <p className="font-mono text-xl font-bold text-slate-900 mt-1">Nº {currentQuote.id.toUpperCase()}</p>
                       </div>
                    </div>
                    
-                   <div className="flex justify-between gap-10 mb-8 items-start">
-                        <div className="flex-1">
-                            <h3 className="font-bold text-slate-800 border-b-2 border-slate-800 pb-1 mb-3 text-sm uppercase tracking-wide">Información del Cliente</h3>
-                            <table className="w-full text-sm">
-                                <tbody>
-                                    <tr>
-                                        <td className="font-bold text-slate-600 py-1 w-24">Nombre:</td>
-                                        <td className="text-slate-900 py-1">{currentQuote.clientName}</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="font-bold text-slate-600 py-1">Teléfono:</td>
-                                        <td className="text-slate-900 py-1">{currentQuote.phone}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                   {/* Client & Vehicle Info */}
+                   <div className="grid grid-cols-2 gap-8 mb-10">
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <h3 className="font-bold text-blue-700 border-b border-blue-200 pb-2 mb-3 text-xs uppercase tracking-widest">Datos del Cliente</h3>
+                            <div className="text-sm space-y-1.5">
+                                <p><span className="font-bold text-slate-700">Nombre:</span> {currentQuote.clientName}</p>
+                                <p><span className="font-bold text-slate-700">Teléfono:</span> {currentQuote.phone}</p>
+                            </div>
                         </div>
-                        <div className="flex-1">
-                            <h3 className="font-bold text-slate-800 border-b-2 border-slate-800 pb-1 mb-3 text-sm uppercase tracking-wide">Información del Vehículo</h3>
-                            <table className="w-full text-sm">
-                                <tbody>
-                                    <tr>
-                                        <td className="font-bold text-slate-600 py-1 w-24">Vehículo:</td>
-                                        <td className="text-slate-900 py-1 uppercase">{currentQuote.vehicle}</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="font-bold text-slate-600 py-1">Fecha:</td>
-                                        <td className="text-slate-900 py-1">{new Date(currentQuote.date).toLocaleDateString()}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <h3 className="font-bold text-blue-700 border-b border-blue-200 pb-2 mb-3 text-xs uppercase tracking-widest">Datos del Vehículo</h3>
+                            <div className="text-sm space-y-1.5">
+                                <p><span className="font-bold text-slate-700">Vehículo:</span> <span className="uppercase">{currentQuote.vehicle}</span></p>
+                                <p><span className="font-bold text-slate-700">Fecha:</span> {new Date(currentQuote.date).toLocaleDateString()}</p>
+                            </div>
                         </div>
                    </div>
 
+                   {/* Items Table */}
                    <div className="flex-1">
-                     <table className="w-full mb-8 border-collapse">
+                     <table className="w-full mb-10 border-collapse">
                         <thead>
-                           <tr className="bg-slate-100 border-y-2 border-slate-800 text-slate-900 print:bg-slate-100">
-                              <th className="py-2 px-2 text-left font-bold text-sm w-16">Cant.</th>
-                              <th className="py-2 px-2 text-left font-bold text-sm">Descripción</th>
-                              <th className="py-2 px-2 text-right font-bold text-sm w-32">P. Unit</th>
-                              <th className="py-2 px-2 text-right font-bold text-sm w-32">Total</th>
+                           <tr className="bg-blue-600 text-white">
+                              <th className="py-3 px-4 text-center font-bold text-sm w-16 rounded-tl-lg">Cant.</th>
+                              <th className="py-3 px-4 text-left font-bold text-sm">Descripción</th>
+                              <th className="py-3 px-4 text-right font-bold text-sm w-32">P. Unit</th>
+                              <th className="py-3 px-4 text-right font-bold text-sm w-32 rounded-tr-lg">Total</th>
                            </tr>
                         </thead>
                         <tbody className="text-sm">
                            {currentQuote.laborItems && currentQuote.laborItems.length > 0 && (
                              <>
-                               <tr className="bg-slate-50 font-bold text-slate-500 uppercase text-xs"><td colSpan={4} className="py-1 px-2">Servicios / Mano de Obra</td></tr>
+                               <tr className="bg-slate-100 font-bold text-slate-700 uppercase text-xs"><td colSpan={4} className="py-2 px-4">Servicios / Mano de Obra</td></tr>
                                {currentQuote.laborItems.map((item, idx) => (
-                                  <tr key={`l-${idx}`} className="border-b border-slate-200"><td className="py-2 px-2 text-center text-slate-600">{item.quantity}</td><td className="py-2 px-2 text-slate-800">{item.description}</td><td className="py-2 px-2 text-right text-slate-600">${formatCLP(item.unitPrice)}</td><td className="py-2 px-2 text-right font-bold text-slate-900">${formatCLP(item.unitPrice * item.quantity)}</td></tr>
+                                  <tr key={`l-${idx}`} className="border-b border-slate-200"><td className="py-3 px-4 text-center text-slate-700">{item.quantity}</td><td className="py-3 px-4 text-slate-900 font-medium">{item.description}</td><td className="py-3 px-4 text-right text-slate-700">${formatCLP(item.unitPrice)}</td><td className="py-3 px-4 text-right font-bold text-slate-950">${formatCLP(item.unitPrice * item.quantity)}</td></tr>
                                ))}
                              </>
                            )}
+                           
+                           {/* Discount row */}
+                           {currentQuote.laborDiscount && currentQuote.laborDiscount > 0 ? (
+                                <tr className="border-b border-slate-200 bg-red-50">
+                                    <td colSpan={2}></td>
+                                    <td className="py-3 px-4 text-right font-bold text-red-700">
+                                        Descuento ({currentQuote.laborDiscountType === 'fixed' ? `$${formatCLP(currentQuote.laborDiscount)}` : `${currentQuote.laborDiscount}%`})
+                                        {currentQuote.laborDiscountReason && <span className="font-normal text-xs ml-1 italic">- {currentQuote.laborDiscountReason}</span>}
+                                    </td>
+                                    <td className="py-3 px-4 text-right font-bold text-red-700">
+                                        -${formatCLP(
+                                            currentQuote.laborDiscountType === 'fixed'
+                                            ? Math.min(currentQuote.laborDiscount, (currentQuote.laborItems || []).reduce((a,c)=>a + c.unitPrice*c.quantity, 0))
+                                            : Math.round(((currentQuote.laborItems || []).reduce((a,c) => a + c.unitPrice*c.quantity, 0)) * (currentQuote.laborDiscount/100))
+                                        )}
+                                    </td>
+                                </tr>
+                           ) : null}
+
                            {(currentQuote.expenseItems || []).length > 0 && (
                              <>
-                               <tr className="bg-slate-50 font-bold text-slate-500 uppercase text-xs"><td colSpan={4} className="py-1 px-2 mt-2">Repuestos / Otros</td></tr>
+                               <tr className="bg-slate-100 font-bold text-slate-700 uppercase text-xs"><td colSpan={4} className="py-2 px-4">Repuestos / Otros</td></tr>
                                {(currentQuote.expenseItems || []).map((item, idx) => (
-                                  <tr key={`e-${idx}`} className="border-b border-slate-200"><td className="py-2 px-2 text-center text-slate-600">{item.quantity}</td><td className="py-2 px-2 text-slate-800">{item.description}</td><td className="py-2 px-2 text-right text-slate-600">${formatCLP(item.unitPrice)}</td><td className="py-2 px-2 text-right font-bold text-slate-900">${formatCLP(item.unitPrice * item.quantity)}</td></tr>
+                                  <tr key={`e-${idx}`} className="border-b border-slate-200"><td className="py-3 px-4 text-center text-slate-700">{item.quantity}</td><td className="py-3 px-4 text-slate-900 font-medium">{item.description}</td><td className="py-3 px-4 text-right text-slate-700">${formatCLP(item.unitPrice)}</td><td className="py-3 px-4 text-right font-bold text-slate-950">${formatCLP(item.unitPrice * item.quantity)}</td></tr>
                                ))}
                              </>
                            )}
                         </tbody>
                      </table>
                    </div>
+                   
+                   {/* Totals & Footer */}
                    <div className="flex flex-row justify-end items-start mb-16 break-inside-avoid">
-                      <div className="w-64">
-                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">TOTAL</span><span className="font-bold text-xl">${formatCLP(currentQuote.total)}</span></div>
-                         <p className="text-[10px] text-slate-500 text-right mt-1">* Válido por {currentQuote.validityDays} días</p>
+                      <div className="w-72 bg-slate-50 p-6 rounded-xl border border-slate-200">
+                         {/* Calculations for PDF */}
+                         {(() => {
+                             const rawLabor = (currentQuote.laborItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
+                             const expensesTotal = (currentQuote.expenseItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
+                             const subtotal = rawLabor + expensesTotal;
+                             
+                             let discountAmount = 0;
+                             let discountText = '';
+                             if (currentQuote.laborDiscount && currentQuote.laborDiscount > 0) {
+                                 if (currentQuote.laborDiscountType === 'fixed') {
+                                     discountAmount = currentQuote.laborDiscount;
+                                     discountText = `$${formatCLP(discountAmount)}`;
+                                 } else {
+                                     discountAmount = Math.round(rawLabor * (currentQuote.laborDiscount / 100));
+                                     discountText = `${currentQuote.laborDiscount}%`;
+                                 }
+                                 discountAmount = Math.min(discountAmount, rawLabor);
+                             }
+                             const finalTotal = subtotal - discountAmount;
+
+                             if (discountAmount > 0) {
+                                 return (
+                                     <>
+                                         <div className="flex justify-between py-1 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(subtotal)}</span></div>
+                                         <div className="flex justify-between py-1 text-sm text-red-600"><span>Descuento ({discountText})</span><span>-${formatCLP(discountAmount)}</span></div>
+                                         <div className="flex justify-between py-3 border-t-2 border-slate-300 text-slate-950 mt-2"><span className="font-bold text-lg">Total a Pagar</span><span className="font-bold text-lg">${formatCLP(finalTotal)}</span></div>
+                                     </>
+                                 );
+                             } else {
+                                 return (
+                                     <div className="flex justify-between py-3 border-t-2 border-slate-300 text-slate-950"><span className="font-bold text-lg">TOTAL</span><span className="font-bold text-lg">${formatCLP(finalTotal)}</span></div>
+                                 );
+                             }
+                         })()}
+                         <p className="text-[10px] text-slate-500 text-right mt-2">* Válido por {currentQuote.validityDays} días</p>
                       </div>
                    </div>
+                   
                    <div className="mt-auto pt-10 break-inside-avoid">
-                      <div className="mb-8 text-right pr-4">
-                         <p className="text-sm font-bold text-slate-800 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {MECHANIC_NAME}</p>
+                      <div className="mb-12 text-right pr-4">
+                         <p className="text-sm font-bold text-slate-900 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {MECHANIC_NAME}</p>
                       </div>
-                      <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Taller</p></div><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Cliente</p></div></div>
-                      <div className="border-t border-slate-200 pt-4 flex justify-between text-[10px] text-slate-400"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>
+                      <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Taller</p></div><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Cliente</p></div></div>
+                      <div className="border-t-2 border-slate-200 pt-4 flex justify-between text-[10px] text-slate-500"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>
                    </div>
                 </div>
              </div>

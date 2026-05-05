@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { auth } from './firebase';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Services from './components/Services';
@@ -22,7 +24,15 @@ const defaultSettings: AppSettings = {
 };
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
   
   // --- Data States ---
   const [services, setServices] = useState<Service[]>(() => {
@@ -100,6 +110,7 @@ function App() {
         return <Costs costs={costs} setCosts={setCosts} />;
       case AppView.SETTINGS:
         return <Settings 
+          user={user}
           settings={settings} 
           setSettings={setSettings} 
           services={services} 
@@ -150,6 +161,7 @@ function App() {
           setCurrentView={setCurrentView} 
           onNavigate={() => setIsMobileMenuOpen(false)}
           settings={settings}
+          user={user}
         />
       </div>
 

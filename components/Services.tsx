@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceExpense, AppSettings, ServicePayment } from '../types';
-import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog, FilePenLine, Eraser, Camera, Image as ImageIcon, Share2 } from 'lucide-react';
+import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog, FilePenLine, Eraser, Camera, Image as ImageIcon, Share2, Percent } from 'lucide-react';
 
 declare var html2pdf: any;
 
@@ -73,7 +73,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
     laborItems: [],
     expenses: [],
     payments: [],
-    photos: []
+    photos: [],
+    laborDiscount: 0,
+    laborDiscountType: 'percent',
+    laborDiscountReason: ''
   });
 
   // State for adding specific items inside the modal
@@ -281,23 +284,40 @@ export default function Services({ services, setServices, settings }: ServicesPr
     if (e.target.name === 'brand') filterBrands(newService.brand || '');
   };
 
-  const calculateServiceTotalLabor = (service: Partial<Service>) => {
+  // Logic to calculate raw labor total without discount
+  const calculateRawLabor = (service: Partial<Service>) => {
     if (!service.laborItems || service.laborItems.length === 0) return service.price || 0;
     return service.laborItems.reduce((acc, curr) => acc + curr.amount, 0);
   };
 
+  // Logic to calculate final total considering discount
   const calculateTotal = (service: Service | Partial<Service>) => {
-    const labor = (service.laborItems || []).reduce((acc, curr) => acc + curr.amount, 0);
-    const effectiveLabor = labor === 0 && (service.price || 0) > 0 ? (service.price || 0) : labor;
+    const rawLabor = calculateRawLabor(service);
+    const discount = service.laborDiscount || 0;
+    const isFixed = service.laborDiscountType === 'fixed';
+    
+    let discountAmount = 0;
+    if (isFixed) {
+        discountAmount = discount;
+    } else {
+        discountAmount = Math.round(rawLabor * (discount / 100));
+    }
+    
+    // Ensure we don't discount more than the raw labor
+    discountAmount = Math.min(discountAmount, rawLabor);
+    const finalLabor = rawLabor - discountAmount;
+    
     const expensesTotal = (service.expenses || []).reduce((acc, curr) => acc + curr.amount, 0);
-    return effectiveLabor + expensesTotal;
+    return finalLabor + expensesTotal;
   };
 
   const handleSaveService = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newService.plate) return;
 
-    const totalLabor = calculateServiceTotalLabor(newService);
+    // Use the stored raw price (or sum of items) as base
+    const totalLaborRaw = calculateRawLabor(newService);
+    
     const advanceAmount = Number(newService.advance) || 0;
     const entryDate = newService.entryDate || new Date().toISOString();
 
@@ -325,7 +345,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
       reason: newService.reason || '',
       laborItems: newService.laborItems || [],
       expenses: newService.expenses || [],
-      price: totalLabor,
+      price: totalLaborRaw, // Store raw labor value
+      laborDiscount: newService.laborDiscount || 0,
+      laborDiscountType: newService.laborDiscountType || 'percent',
+      laborDiscountReason: newService.laborDiscountReason || '',
       advance: advanceAmount,
       payments: currentPayments,
       photos: newService.photos || [],
@@ -468,7 +491,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
       laborItems: laborItems,
       expenses: service.expenses || [],
       payments: service.payments || [],
-      photos: service.photos || []
+      photos: service.photos || [],
+      laborDiscount: service.laborDiscount || 0,
+      laborDiscountType: service.laborDiscountType || 'percent',
+      laborDiscountReason: service.laborDiscountReason || ''
     });
     setIsEditing(true);
     setFoundExistingCar(true);
@@ -485,7 +511,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
       laborItems: [],
       expenses: [],
       payments: [],
-      photos: []
+      photos: [],
+      laborDiscount: 0,
+      laborDiscountType: 'percent',
+      laborDiscountReason: ''
     });
     setTempLabor({ description: '', amount: '' });
     setTempExpense({ description: '', amount: '' });
@@ -532,7 +561,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
       laborItems: [],
       expenses: [],
       payments: [],
-      photos: []
+      photos: [],
+      laborDiscount: 0,
+      laborDiscountType: 'percent',
+      laborDiscountReason: ''
     }));
     setFoundExistingCar(false);
     setIsEditing(false);
@@ -647,8 +679,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
     
     const labor = service.laborItems || [];
     const expenses = service.expenses || [];
-    const total = calculateTotal(service);
-    const remaining = total - (service.advance || 0);
+    const remaining = calculateTotal(service) - (service.advance || 0);
 
     let detailStr = '';
     const legacyLaborAmount = service.price;
@@ -676,6 +707,33 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
     const vehicleInfo = `🚗 ${service.brand} ${service.model}\n🔢 Patente: ${service.plate}\n📅 Fecha: ${new Date(service.entryDate).toLocaleDateString()}`;
 
+    // --- Discount Logic for WhatsApp ---
+    const rawLabor = hasDetailedLabor ? labor.reduce((a,b)=>a+b.amount,0) : legacyLaborAmount;
+    const expensesTotal = expenses.reduce((a,b)=>a+b.amount,0);
+    const subtotal = rawLabor + expensesTotal;
+    
+    let discountAmount = 0;
+    let discountText = '';
+    
+    if (service.laborDiscount && service.laborDiscount > 0) {
+        if (service.laborDiscountType === 'fixed') {
+            discountAmount = service.laborDiscount;
+            discountText = `$${discountAmount.toLocaleString('es-CL')}`;
+        } else {
+            discountAmount = Math.round(rawLabor * (service.laborDiscount / 100));
+            discountText = `${service.laborDiscount}%`;
+        }
+        discountAmount = Math.min(discountAmount, rawLabor);
+    }
+
+    const finalTotal = subtotal - discountAmount;
+    let totalString = `$${finalTotal.toLocaleString('es-CL')}`;
+
+    // If discount exists, modify the "Total" display to be detailed
+    if (discountAmount > 0) {
+        totalString = `\n   Subtotal: $${subtotal.toLocaleString('es-CL')}\n   Descuento (${discountText}): -$${discountAmount.toLocaleString('es-CL')}\n   Total a Pagar: $${finalTotal.toLocaleString('es-CL')}`;
+    }
+
     let msg = settings.whatsappServiceTemplate;
     msg = msg.replace(/{taller}/g, settings.companyName);
     msg = msg.replace(/{cliente}/g, service.clientName);
@@ -689,7 +747,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
     msg = msg.replace(/{vehiculo}/g, vehicleInfo);
     
     msg = msg.replace(/{estado}/g, getStatusLabel(service.status).toUpperCase());
-    msg = msg.replace(/{total}/g, total.toLocaleString('es-CL'));
+    
+    // Replace {total} with either the single amount or the breakdown
+    msg = msg.replace(/{total}/g, totalString);
+    
     msg = msg.replace(/{abono}/g, (service.advance || 0).toLocaleString('es-CL'));
     msg = msg.replace(/{saldo}/g, remaining.toLocaleString('es-CL'));
     msg = msg.replace(/{detalle}/g, detailStr);
@@ -831,6 +892,16 @@ export default function Services({ services, setServices, settings }: ServicesPr
               const isExpanded = expandedServiceId === service.id;
               const total = calculateTotal(service);
               const remaining = total - (service.advance || 0);
+              const rawLabor = calculateRawLabor(service);
+              
+              let discountAmount = 0;
+              if (service.laborDiscountType === 'fixed') {
+                  discountAmount = service.laborDiscount || 0;
+              } else {
+                  discountAmount = Math.round(rawLabor * ((service.laborDiscount || 0) / 100));
+              }
+              discountAmount = Math.min(discountAmount, rawLabor);
+
               return (
                 <div key={service.id} onClick={() => toggleExpandCard(service.id)} className={`bg-slate-800 rounded-xl border border-slate-700 hover:border-blue-500/50 hover:bg-slate-800/80 transition-all duration-300 group relative flex flex-col cursor-pointer overflow-hidden z-10 shadow-lg shadow-slate-900/20 ${isExpanded ? 'row-span-2' : ''}`}>
                   <div className="p-4 flex justify-between items-start gap-2">
@@ -894,6 +965,20 @@ export default function Services({ services, setServices, settings }: ServicesPr
                             ) : (
                                <div className="flex justify-between p-2 border-b border-slate-700/30 text-xs"><span className="text-slate-300 pl-2">Mano de Obra Base</span><span className="text-slate-200">${formatCLP(service.price)}</span></div>
                             )}
+                            
+                            {service.laborDiscount && service.laborDiscount > 0 ? (
+                                <div className="flex justify-between p-2 border-b border-slate-700/30 text-xs bg-green-500/5">
+                                    <div className="pl-2 flex flex-col">
+                                        <span className="text-green-400 font-bold flex items-center gap-1">
+                                            {service.laborDiscountType === 'fixed' ? <DollarSign size={10}/> : <Percent size={10}/>} 
+                                            Descuento ({service.laborDiscountType === 'fixed' ? `$${formatCLP(service.laborDiscount)}` : `${service.laborDiscount}%`})
+                                        </span>
+                                        {service.laborDiscountReason && <span className="text-[10px] text-green-500/70 italic">{service.laborDiscountReason}</span>}
+                                    </div>
+                                    <span className="text-green-400 font-bold">-${formatCLP(discountAmount)}</span>
+                                </div>
+                            ) : null}
+
                             {service.expenses && service.expenses.length > 0 && (
                                <>
                                  <div className="bg-orange-500/5 p-2 border-b border-slate-700/30 border-t border-slate-700/30 flex justify-between items-center"><span className="text-orange-400 font-bold text-xs uppercase flex items-center gap-1"><Box size={12}/> Repuestos y Terceros</span></div>
@@ -1144,10 +1229,33 @@ export default function Services({ services, setServices, settings }: ServicesPr
                      <table className="w-full mb-8 border-collapse">
                         <tbody className="text-sm">
                            {printService.laborItems && printService.laborItems.length > 0 ? (
-                              <><tr className="bg-slate-100 print:bg-slate-100"><td colSpan={2} className="py-1 px-2 font-bold text-xs uppercase text-slate-500">Servicios / Mano de Obra</td></tr>{printService.laborItems.map((item, idx) => (<tr key={`l-${idx}`} className="border-b border-slate-200"><td className="py-2 px-2 text-slate-800 pl-4">{item.description}</td><td className="py-2 px-2 text-right font-medium text-slate-900">${formatCLP(item.amount)}</td></tr>))}</>
+                              <>
+                                <tr className="bg-slate-100 print:bg-slate-100"><td colSpan={2} className="py-1 px-2 font-bold text-xs uppercase text-slate-500">Servicios / Mano de Obra</td></tr>
+                                {printService.laborItems.map((item, idx) => (
+                                    <tr key={`l-${idx}`} className="border-b border-slate-200"><td className="py-2 px-2 text-slate-800 pl-4">{item.description}</td><td className="py-2 px-2 text-right font-medium text-slate-900">${formatCLP(item.amount)}</td></tr>
+                                ))}
+                              </>
                            ) : (
                               <tr className="border-b border-slate-200"><td className="py-2 px-2 font-medium text-slate-800">Mano de Obra Base</td><td className="py-2 px-2 text-right font-bold text-slate-900">${formatCLP(printService.price)}</td></tr>
                            )}
+                           
+                           {/* Only show Discount row in table if it exists */}
+                           {printService.laborDiscount && printService.laborDiscount > 0 ? (
+                                <tr className="border-b border-slate-200 bg-slate-50 print:bg-white">
+                                    <td className="py-2 px-2 text-slate-600 pl-4 font-bold">
+                                        Descuento ({printService.laborDiscountType === 'fixed' ? `$${formatCLP(printService.laborDiscount)}` : `${printService.laborDiscount}%`})
+                                        {printService.laborDiscountReason && <span className="font-normal text-xs ml-1 italic">- {printService.laborDiscountReason}</span>}
+                                    </td>
+                                    <td className="py-2 px-2 text-right font-bold text-slate-900">
+                                        -${formatCLP(
+                                            printService.laborDiscountType === 'fixed' 
+                                            ? Math.min(printService.laborDiscount, calculateRawLabor(printService)) 
+                                            : Math.round(calculateRawLabor(printService) * (printService.laborDiscount/100))
+                                        )}
+                                    </td>
+                                </tr>
+                           ) : null}
+
                            {printService.expenses && printService.expenses.length > 0 && (
                               <><tr className="bg-slate-100 print:bg-slate-100"><td colSpan={2} className="py-1 px-2 font-bold text-xs uppercase text-slate-500 mt-2">Repuestos y Terceros</td></tr>{printService.expenses.map((exp, idx) => (<tr key={`e-${idx}`} className="border-b border-slate-200"><td className="py-2 px-2 text-slate-600 pl-4">{exp.description}</td><td className="py-2 px-2 text-right text-slate-900">${formatCLP(exp.amount)}</td></tr>))}</>
                            )}
@@ -1175,9 +1283,46 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
                    <div className="flex flex-row justify-end items-start mb-16 break-inside-avoid">
                       <div className="w-64">
-                         <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(calculateTotal(printService))}</span></div>
-                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-b border-slate-200"><span>Abono / Adelanto</span><span>-${formatCLP(printService.advance)}</span></div>)}
-                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">TOTAL A PAGAR</span><span className="font-bold text-xl">${formatCLP(calculateTotal(printService) - (printService.advance || 0))}</span></div>
+                         {/* Calculations for PDF */}
+                         {(() => {
+                             const rawLabor = calculateRawLabor(printService);
+                             const expensesTotal = (printService.expenses || []).reduce((acc, curr) => acc + curr.amount, 0);
+                             const subtotal = rawLabor + expensesTotal;
+                             
+                             let discountAmount = 0;
+                             let discountText = '';
+                             if (printService.laborDiscount && printService.laborDiscount > 0) {
+                                 if (printService.laborDiscountType === 'fixed') {
+                                     discountAmount = printService.laborDiscount;
+                                     discountText = `$${formatCLP(discountAmount)}`;
+                                 } else {
+                                     discountAmount = Math.round(rawLabor * (printService.laborDiscount / 100));
+                                     discountText = `${printService.laborDiscount}%`;
+                                 }
+                                 discountAmount = Math.min(discountAmount, rawLabor);
+                             }
+                             const finalTotal = subtotal - discountAmount;
+
+                             if (discountAmount > 0) {
+                                 return (
+                                     <>
+                                         <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(subtotal)}</span></div>
+                                         <div className="flex justify-between py-2 text-sm text-slate-600"><span>Descuento ({discountText})</span><span>-${formatCLP(discountAmount)}</span></div>
+                                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">Total a Pagar</span><span className="font-bold text-xl">${formatCLP(finalTotal)}</span></div>
+                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-t border-slate-200 mt-1"><span>Abono / Adelanto</span><span>-${formatCLP(printService.advance)}</span></div>)}
+                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-red-600 font-bold"><span>Pendiente</span><span>${formatCLP(finalTotal - (printService.advance || 0))}</span></div>)}
+                                     </>
+                                 );
+                             } else {
+                                 return (
+                                     <>
+                                         <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(subtotal)}</span></div>
+                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-b border-slate-200"><span>Abono / Adelanto</span><span>-${formatCLP(printService.advance)}</span></div>)}
+                                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">TOTAL A PAGAR</span><span className="font-bold text-xl">${formatCLP(finalTotal - (printService.advance || 0))}</span></div>
+                                     </>
+                                 );
+                             }
+                         })()}
                       </div>
                    </div>
                    <div className="mt-auto pt-10 break-inside-avoid">
@@ -1243,7 +1388,49 @@ export default function Services({ services, setServices, settings }: ServicesPr
                   </div>
                   <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 space-y-6">
                     <div className="space-y-3">
-                      <label className="text-sm font-bold text-blue-400 flex items-center gap-2 uppercase tracking-wide"><Hammer size={16} /> Servicios / Mano de Obra</label>
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                          <label className="text-sm font-bold text-blue-400 flex items-center gap-2 uppercase tracking-wide"><Hammer size={16} /> Servicios / Mano de Obra</label>
+                          <div className="flex items-center gap-2">
+                              <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                                  <button 
+                                    type="button"
+                                    onClick={() => setNewService({...newService, laborDiscountType: 'percent', laborDiscount: 0})}
+                                    className={`px-2 py-1 rounded text-xs font-bold transition-colors ${newService.laborDiscountType !== 'fixed' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                  >%</button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => setNewService({...newService, laborDiscountType: 'fixed', laborDiscount: 0})}
+                                    className={`px-2 py-1 rounded text-xs font-bold transition-colors ${newService.laborDiscountType === 'fixed' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                  >$</button>
+                              </div>
+                              <label className="text-xs text-slate-400">Descuento</label>
+                              <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    inputMode="numeric"
+                                    className="w-20 bg-slate-800 border border-slate-700 rounded-lg p-1 text-white text-center text-sm focus:border-green-500 outline-none" 
+                                    placeholder="0" 
+                                    value={newService.laborDiscount === 0 ? '' : (newService.laborDiscountType === 'fixed' ? formatCLP(newService.laborDiscount) : newService.laborDiscount)} 
+                                    onChange={e => {
+                                        let val = parseInt(e.target.value.replace(/\./g, '').replace(/\D/g, '')) || 0;
+                                        if (newService.laborDiscountType !== 'fixed') {
+                                            val = Math.min(100, Math.max(0, val));
+                                        }
+                                        setNewService({...newService, laborDiscount: val === 0 ? undefined : val});
+                                    }} 
+                                />
+                                {newService.laborDiscount && newService.laborDiscount > 0 ? (
+                                    <input 
+                                        type="text" 
+                                        className="w-32 bg-slate-800 border border-slate-700 rounded-lg p-1 text-white text-sm focus:border-green-500 outline-none placeholder-slate-500" 
+                                        placeholder="Razón..." 
+                                        value={newService.laborDiscountReason || ''} 
+                                        onChange={e => setNewService({...newService, laborDiscountReason: e.target.value})} 
+                                    />
+                                ) : null}
+                              </div>
+                          </div>
+                      </div>
                       <div className="flex gap-2">
                          <input type="text" placeholder="Ej: Cambio de aceite" className="flex-1 bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm text-white focus:border-blue-500 outline-none" value={tempLabor.description} onChange={(e) => setTempLabor({...tempLabor, description: e.target.value})} />
                          <input type="text" inputMode="numeric" placeholder="$ Monto" className="w-24 bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm text-white focus:border-blue-500 outline-none" value={tempLabor.amount === '' ? '' : formatCLP(parseInt(tempLabor.amount.replace(/\./g, '')))} onChange={(e) => { const val = e.target.value.replace(/\./g, '').replace(/\D/g, ''); setTempLabor({...tempLabor, amount: val}); }} />
@@ -1272,7 +1459,15 @@ export default function Services({ services, setServices, settings }: ServicesPr
                         </div>
                       )}
                     </div>
-                    <div className="pt-4 border-t border-slate-700 flex justify-between items-center"><span className="text-sm text-slate-400">Total Final (Servicios + Repuestos)</span><span className="text-xl font-bold text-white">${formatCLP(calculateTotal(newService))}</span></div>
+                    <div className="pt-4 border-t border-slate-700 flex justify-between items-center">
+                        <span className="text-sm text-slate-400">Total Final</span>
+                        <div className="flex flex-col items-end">
+                            <span className="text-xl font-bold text-white">${formatCLP(calculateTotal(newService))}</span>
+                            {newService.laborDiscount && newService.laborDiscount > 0 ? (
+                                <span className="text-xs text-green-400">Incluye descuento M.O del {newService.laborDiscountType === 'fixed' ? `$${formatCLP(newService.laborDiscount)}` : `${newService.laborDiscount}%`}</span>
+                            ) : null}
+                        </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-2"><label className="text-sm font-medium text-slate-300">Abono Cliente</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span><input type="text" inputMode="numeric" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 pl-8 text-white focus:border-blue-500 focus:outline-none" value={newService.advance === 0 ? '' : formatCLP(newService.advance)} onChange={(e) => handleCurrencyChange(e, 'advance')} onFocus={handleInputFocus} /></div></div>

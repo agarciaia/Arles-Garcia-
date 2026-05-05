@@ -1,0 +1,74 @@
+{
+  "entities": {
+    "Service": {
+      "title": "Service",
+      "description": "A service order in the workshop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientName": { "type": "string" },
+        "phone": { "type": "string" },
+        "plate": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "reason": { "type": "string" },
+        "price": { "type": "number" },
+        "entryDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["pending", "in-progress", "completed", "cancelled"] }
+      },
+      "required": ["id", "clientName", "plate", "entryDate", "status"]
+    },
+    "Cost": {
+      "title": "Cost",
+      "description": "A workshop cost or expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "category": { "type": "string", "enum": ["parts", "labor", "utilities", "other"] }
+      },
+      "required": ["id", "description", "amount", "date", "category"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "description": "A service quote",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientName": { "type": "string" },
+        "total": { "type": "number" },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["id", "clientName", "total", "date"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Application settings",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" }
+      },
+      "required": ["companyName"]
+    }
+  },
+  "firestore": {
+    "/services/{serviceId}": {
+      "schema": { "$ref": "Service" },
+      "description": "Workshop services"
+    },
+    "/costs/{costId}": {
+      "schema": { "$ref": "Cost" },
+      "description": "Workshop costs"
+    },
+    "/quotes/{quoteId}": {
+      "schema": { "$ref": "Quote" },
+      "description": "Workshop quotes"
+    },
+    "/settings/{settingsId}": {
+      "schema": { "$ref": "AppSettings" },
+      "description": "Application settings"
+    }
+  }
+}

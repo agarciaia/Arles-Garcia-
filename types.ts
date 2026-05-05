@@ -26,6 +26,9 @@ export interface Service {
   price: number; // Legacy compatibility (Base Labor)
   laborItems?: ServiceExpense[];
   expenses?: ServiceExpense[];
+  laborDiscount?: number; // Value of discount
+  laborDiscountType?: 'percent' | 'fixed'; // Type of discount
+  laborDiscountReason?: string; // Reason for the discount
   
   advance?: number;
   payments?: ServicePayment[]; // New field for detailed payment tracking
@@ -63,6 +66,9 @@ export interface Quote {
   laborItems?: QuoteItem[];
   expenseItems?: QuoteItem[];
   items?: QuoteItem[]; // Legacy fallback
+  laborDiscount?: number; // Value of discount
+  laborDiscountType?: 'percent' | 'fixed'; // Type of discount
+  laborDiscountReason?: string; // Reason for the discount
   
   notes?: string;
   total: number;

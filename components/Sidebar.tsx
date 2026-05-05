@@ -1,4 +1,5 @@
 import React from 'react';
+import { User } from 'firebase/auth';
 import { LayoutDashboard, Wrench, DollarSign, Settings, Car, FileText } from 'lucide-react';
 import { AppView, AppSettings } from '../types';
 
@@ -7,9 +8,10 @@ interface SidebarProps {
   setCurrentView: (view: AppView) => void;
   onNavigate?: () => void;
   settings: AppSettings;
+  user: User | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onNavigate, settings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onNavigate, settings, user }) => {
   const navItems = [
     { id: AppView.DASHBOARD, label: 'Dashboard', icon: LayoutDashboard },
     { id: AppView.SERVICES, label: 'Servicios', icon: Wrench },
@@ -63,8 +65,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onNaviga
             {settings.companyName}
           </h1>
         </div>
-        <div className="text-xs font-medium text-slate-500 capitalize pl-1">
+        <div className="text-xs font-medium text-slate-500 capitalize pl-1 flex items-center gap-2">
           {dateStr}
+          <div className={`w-2 h-2 rounded-full ${user ? 'bg-green-500' : 'bg-red-500'}`} title={user ? 'Conectado a Google' : 'No conectado'}></div>
         </div>
       </div>
       

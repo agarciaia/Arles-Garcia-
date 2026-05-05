@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: services
+    // Document ID: {serviceId}
+    // Fields:
+    //   - id: string (required)
+    //   - clientName: string (required)
+    //   - plate: string (required)
+    //   - entryDate: string (required, date format)
+    //   - status: string (required, enum: pending, in-progress, completed, cancelled)
+    //
+    // Collection: costs
+    // Document ID: {costId}
+    // Fields:
+    //   - id: string (required)
+    //   - description: string (required)
+    //   - amount: number (required)
+    //   - date: string (required, date format)
+    //   - category: string (required, enum: parts, labor, utilities, other)
+    //
+    // Collection: quotes
+    // Document ID: {quoteId}
+    // Fields:
+    //   - id: string (required)
+    //   - clientName: string (required)
+    //   - total: number (required)
+    //   - date: string (required, date format)
+    //
+    // Collection: settings
+    // Document ID: {settingsId}
+    // Fields:
+    //   - companyName: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+       return request.auth != null;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /services/{serviceId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /costs/{costId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /quotes/{quoteId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /settings/{settingsId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

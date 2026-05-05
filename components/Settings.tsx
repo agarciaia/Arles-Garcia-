@@ -1,8 +1,11 @@
 import React, { useState, useRef } from 'react';
+import { User } from 'firebase/auth';
+import { auth, googleProvider, signInWithPopup } from '../firebase';
 import { AppSettings, Service, Cost, Quote, ServiceExpense, ServicePayment, QuoteItem } from '../types';
-import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut } from 'lucide-react';
 
 interface SettingsProps {
+  user: User | null;
   settings: AppSettings;
   setSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   services: Service[];
@@ -16,6 +19,7 @@ interface SettingsProps {
 type SettingsSection = 'menu' | 'company' | 'templates' | 'theme' | 'data';
 
 const Settings: React.FC<SettingsProps> = ({ 
+  user,
   settings, setSettings, 
   services, setServices, 
   costs, setCosts, 
@@ -446,6 +450,28 @@ const Settings: React.FC<SettingsProps> = ({
         </div>
 
         <div className="grid grid-cols-1 gap-4">
+          {/* Auth Card */}
+          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between">
+             <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${user ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                  {user ? <Check size={24} /> : <LogIn size={24} />}
+                </div>
+                <div>
+                   <h3 className="text-lg font-bold text-white">{user ? 'Sesión Iniciada' : 'Iniciar Sesión'}</h3>
+                   <p className="text-sm text-slate-400">{user ? user.email : 'Conecta con Google para sincronizar tus datos.'}</p>
+                </div>
+             </div>
+             {user ? (
+               <button onClick={() => auth.signOut()} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-red-500/50 transition-colors flex items-center gap-2">
+                 <LogOut size={16} /> Salir
+               </button>
+             ) : (
+               <button onClick={() => signInWithPopup(auth, googleProvider)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                 <LogIn size={16} /> Google
+               </button>
+             )}
+          </div>
+
           {/* Tarjeta 1: Información */}
           <button 
             onClick={() => setActiveSection('company')}
