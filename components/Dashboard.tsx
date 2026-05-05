@@ -417,9 +417,9 @@ const Dashboard: React.FC<DashboardProps> = ({ services, setServices, costs, set
               )}
             </div>
           </div>
-          <div className="flex-1 min-h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendData}>
+          <div className="flex-1 min-h-[300px] w-full" id="chart-container">
+            <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+              <AreaChart data={trendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
                   <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/><stop offset="95%" stopColor="#ef4444" stopOpacity={0}/></linearGradient>

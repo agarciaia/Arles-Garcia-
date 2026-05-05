@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { User } from 'firebase/auth';
+import { User, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, signInWithPopup } from '../firebase';
 import { AppSettings, Service, Cost, Quote, ServiceExpense, ServicePayment, QuoteItem } from '../types';
 import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut } from 'lucide-react';
@@ -462,9 +462,22 @@ const Settings: React.FC<SettingsProps> = ({
                 </div>
              </div>
              {user ? (
-               <button onClick={() => auth.signOut()} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-red-500/50 transition-colors flex items-center gap-2">
-                 <LogOut size={16} /> Salir
-               </button>
+               <div className="flex gap-2">
+                 <button 
+                   onClick={() => {
+                     const provider = new GoogleAuthProvider();
+                     provider.setCustomParameters({ prompt: 'select_account' });
+                     signInWithPopup(auth, provider);
+                   }}
+                   className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-blue-500/50 transition-colors flex items-center gap-2"
+                   title="Cambiar a otra cuenta de Google"
+                 >
+                   <LogIn size={16} /> Cambiar
+                 </button>
+                 <button onClick={() => auth.signOut()} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-red-500/50 transition-colors flex items-center gap-2">
+                   <LogOut size={16} /> Salir
+                 </button>
+               </div>
              ) : (
                <button onClick={() => signInWithPopup(auth, googleProvider)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
                  <LogIn size={16} /> Google
