@@ -7,7 +7,8 @@ import Services from './components/Services';
 import Quotes from './components/Quotes';
 import Costs from './components/Costs';
 import Settings from './components/Settings';
-import { AppView, Service, Cost, Quote, AppSettings } from './types';
+import Guide from './components/Guide';
+import { AppView, Service, Cost, Quote, AppSettings, UserRole } from './types';
 import { Menu, X, Maximize, Minimize } from 'lucide-react';
 
 const initialServices: Service[] = [];
@@ -16,20 +17,37 @@ const initialQuotes: Quote[] = [];
 
 const defaultSettings: AppSettings = {
   themeColor: 'blue',
-  companyName: 'Yahveh Jireh',
-  companyAddress: 'Quiriquina 3738, Comuna Lo Espejo',
-  companyPhone: '+56 9 5795 1027',
-  whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en Taller {taller}',
+  companyName: 'Ingrese nombre de su taller',
+  companyAddress: 'Dirección de su taller',
+  companyPhone: 'Teléfono de contacto',
+  logoUrl: '',
+  whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
   whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
 };
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [role, setRole] = useState<UserRole>('guest');
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      if (currentUser?.email) {
+        // LÓGICA DE ROLES: 
+        // 1. Admin: Si el correo contiene "admin" o es el correo del desarrollador
+        // 2. Profesor: Si contiene "profe"
+        // 3. Alumno: Cualquier otro correo autenticado
+        if (currentUser.email.includes('admin') || currentUser.email === 'ag.analisis247@gmail.com') {
+          setRole('admin');
+        } else if (currentUser.email.includes('profe')) {
+          setRole('profesor');
+        } else {
+          setRole('alumno');
+        }
+      } else {
+        setRole('guest');
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -99,15 +117,28 @@ function App() {
   }, []);
 
   const renderView = () => {
+    // Permitir ver la Guía y la Configuración (donde está el Login) sin estar autenticado
+    if (!user && currentView !== AppView.GUIDE && currentView !== AppView.SETTINGS) {
+        return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
+    }
+
     switch(currentView) {
       case AppView.DASHBOARD:
         return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
       case AppView.SERVICES:
-        return <Services services={services} setServices={setServices} settings={settings} />;
+        // Solo Admin y Profesor ven Servicios
+        if (role === 'admin' || role === 'profesor') {
+            return <Services services={services} setServices={setServices} settings={settings} />;
+        }
+        return <div className="p-10 text-center text-slate-400">No tienes permiso para gestionar servicios.</div>;
       case AppView.QUOTES:
         return <Quotes quotes={quotes} setQuotes={setQuotes} settings={settings} services={services} setServices={setServices} onNavigate={setCurrentView} />;
       case AppView.COSTS:
-        return <Costs costs={costs} setCosts={setCosts} />;
+        // Solo el Admin ve los Costos reales
+        if (role === 'admin') {
+            return <Costs costs={costs} setCosts={setCosts} />;
+        }
+        return <div className="p-10 text-center text-slate-400">Acceso restringido: Solo Administración puede ver costos.</div>;
       case AppView.SETTINGS:
         return <Settings 
           user={user}
@@ -120,6 +151,8 @@ function App() {
           quotes={quotes}     
           setQuotes={setQuotes}     
         />;
+      case AppView.GUIDE:
+        return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
       default:
         return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
     }
@@ -132,6 +165,7 @@ function App() {
       case AppView.QUOTES: return 'Cotizaciones';
       case AppView.COSTS: return 'Control de Costos';
       case AppView.SETTINGS: return 'Configuración';
+      case AppView.GUIDE: return 'Guía del Taller';
       default: return 'TallerManager';
     }
   };

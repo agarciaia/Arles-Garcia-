@@ -97,10 +97,13 @@ export interface AppSettings {
   whatsappQuoteTemplate: string;
 }
 
+export type UserRole = 'admin' | 'profesor' | 'alumno' | 'guest';
+
 export enum AppView {
   DASHBOARD = 'dashboard',
   SERVICES = 'services',
   QUOTES = 'quotes',
   COSTS = 'costs',
-  SETTINGS = 'settings'
+  SETTINGS = 'settings',
+  GUIDE = 'guide'
 }

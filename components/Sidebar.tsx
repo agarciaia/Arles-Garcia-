@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from 'firebase/auth';
-import { LayoutDashboard, Wrench, DollarSign, Settings, Car, FileText } from 'lucide-react';
+import { LayoutDashboard, Wrench, DollarSign, Settings, Car, FileText, HelpCircle } from 'lucide-react';
 import { AppView, AppSettings } from '../types';
 
 interface SidebarProps {
@@ -18,6 +18,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onNaviga
     { id: AppView.QUOTES, label: 'Cotizaciones', icon: FileText },
     { id: AppView.COSTS, label: 'Costos', icon: DollarSign },
     { id: AppView.SETTINGS, label: 'Configuración', icon: Settings },
+    { id: AppView.GUIDE, label: 'Guía de Uso', icon: HelpCircle },
   ];
 
   const handleNavigation = (view: AppView) => {
@@ -58,10 +59,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onNaviga
     <div className="w-64 bg-slate-900 border-r border-slate-800 h-full flex flex-col">
       <div className="p-6 border-b border-slate-800 flex flex-col gap-2 h-auto">
         <div className="flex items-center gap-3">
-          <div className={`${settings.themeColor === 'blue' ? 'bg-blue-600' : getActiveBgClass().split(' ')[0]} p-1.5 rounded-lg shrink-0`}>
-            <Car className="text-white w-5 h-5" />
+          <div className={`${settings.themeColor === 'blue' ? 'bg-blue-600' : getActiveBgClass().split(' ')[0]} p-1 rounded-lg shrink-0 w-10 h-10 flex items-center justify-center overflow-hidden`}>
+            {settings.logoUrl ? (
+              <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+            ) : (
+              <Car className="text-white w-6 h-6" />
+            )}
           </div>
-          <h1 className="text-lg font-bold text-white tracking-tight leading-tight">
+          <h1 className="text-lg font-bold text-white tracking-tight leading-tight truncate">
             {settings.companyName}
           </h1>
         </div>

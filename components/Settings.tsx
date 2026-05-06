@@ -1,8 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { User, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider, signInWithPopup } from '../firebase';
-import { AppSettings, Service, Cost, Quote, ServiceExpense, ServicePayment, QuoteItem } from '../types';
-import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut } from 'lucide-react';
+import { auth, googleProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebase';
+import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut, Mail, Lock, UserPlus } from 'lucide-react';
 
 interface SettingsProps {
   user: User | null;
@@ -28,6 +27,12 @@ const Settings: React.FC<SettingsProps> = ({
   const [activeSection, setActiveSection] = useState<SettingsSection>('menu');
   const [editingTemplate, setEditingTemplate] = useState<'service' | 'quote' | null>(null);
   const [tempTemplateValue, setTempTemplateValue] = useState('');
+  
+  // Auth state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   // Refs for file inputs
   const serviceInputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +71,7 @@ const Settings: React.FC<SettingsProps> = ({
     if(confirm('¿Restablecer las plantillas de mensaje a su valor original?')) {
         setSettings(prev => ({
             ...prev,
-            whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en Taller {taller}',
+            whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
             whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
         }));
     }
@@ -440,6 +445,35 @@ const Settings: React.FC<SettingsProps> = ({
     </button>
   );
 
+  const handleSignIn = async (providerOverride?: GoogleAuthProvider) => {
+    setAuthError('');
+    try {
+      await signInWithPopup(auth, providerOverride || googleProvider);
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        return;
+      }
+      setAuthError('Error al iniciar sesión con Google.');
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (isRegistering) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+      setEmail('');
+      setPassword('');
+    } catch (error: any) {
+        console.error(error);
+        setAuthError(error.message);
+    }
+  };
+
   // --- RENDERIZADO DEL MENÚ PRINCIPAL ---
   if (activeSection === 'menu') {
     return (
@@ -450,39 +484,75 @@ const Settings: React.FC<SettingsProps> = ({
         </div>
 
         <div className="grid grid-cols-1 gap-4">
-          {/* Auth Card */}
-          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center justify-between">
-             <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-xl ${user ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                  {user ? <Check size={24} /> : <LogIn size={24} />}
-                </div>
-                <div>
-                   <h3 className="text-lg font-bold text-white">{user ? 'Sesión Iniciada' : 'Iniciar Sesión'}</h3>
-                   <p className="text-sm text-slate-400">{user ? user.email : 'Conecta con Google para sincronizar tus datos.'}</p>
-                </div>
-             </div>
-             {user ? (
-               <div className="flex gap-2">
-                 <button 
-                   onClick={() => {
-                     const provider = new GoogleAuthProvider();
-                     provider.setCustomParameters({ prompt: 'select_account' });
-                     signInWithPopup(auth, provider);
-                   }}
-                   className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-blue-500/50 transition-colors flex items-center gap-2"
-                   title="Cambiar a otra cuenta de Google"
-                 >
-                   <LogIn size={16} /> Cambiar
-                 </button>
-                 <button onClick={() => auth.signOut()} className="px-4 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:text-white hover:border-red-500/50 transition-colors flex items-center gap-2">
-                   <LogOut size={16} /> Salir
-                 </button>
+          {/* Tarjeta de Autenticación */}
+          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
+            {user ? (
+               <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-700">
+                 {user.photoURL ? (
+                   <img src={user.photoURL} alt={user.email || 'User'} className="w-12 h-12 rounded-full border-2 border-blue-500/50" />
+                 ) : (
+                    <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 font-bold border-2 border-blue-500/50">
+                        {user.email?.charAt(0).toUpperCase()}
+                    </div>
+                 )}
+                 <div className="flex-1 text-center sm:text-left overflow-hidden">
+                    <p className="text-white font-bold truncate">{user.displayName || 'Usuario Activo'}</p>
+                    <p className="text-slate-400 text-xs truncate italic">{user.email}</p>
+                 </div>
+                 <div className="flex gap-2">
+                   <button 
+                     onClick={() => {
+                       const provider = new GoogleAuthProvider();
+                       provider.setCustomParameters({ prompt: 'select_account' });
+                       handleSignIn(provider);
+                     }}
+                     className="px-3 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium hover:text-white hover:border-blue-500/50 transition-colors"
+                   >
+                     Cambiar
+                   </button>
+                   <button onClick={() => signOut(auth)} className="px-3 py-2 bg-red-900/20 border border-red-500/30 text-red-500 rounded-lg text-xs font-medium hover:bg-red-500 hover:text-white transition-all">
+                     Cerrar Sesión
+                   </button>
+                 </div>
                </div>
-             ) : (
-               <button onClick={() => signInWithPopup(auth, googleProvider)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-                 <LogIn size={16} /> Google
-               </button>
-             )}
+            ) : (
+                <div className="space-y-6">
+                    <button onClick={() => handleSignIn()} className="w-full py-3 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-3">
+                        <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+                        Acceder con Google
+                    </button>
+
+                    <div className="relative flex items-center py-2">
+                        <div className="flex-grow border-t border-slate-700"></div>
+                        <span className="flex-shrink mx-4 text-slate-500 text-xs uppercase font-bold tracking-widest">O con Correo</span>
+                        <div className="flex-grow border-t border-slate-700"></div>
+                    </div>
+
+                    <form onSubmit={handleEmailAuth} className="space-y-4">
+                        <div className="relative">
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                            <input 
+                                type="email" placeholder="Email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none"
+                            />
+                        </div>
+                        <div className="relative">
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                            <input 
+                                type="password" placeholder="Contraseña" required value={password} onChange={(e) => setPassword(e.target.value)}
+                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none"
+                            />
+                        </div>
+                        {authError && <p className="text-red-400 text-xs px-1">{authError}</p>}
+                        <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all active:scale-95">
+                            {isRegistering ? 'Registrarse' : 'Ingresar'}
+                        </button>
+                    </form>
+                    <button onClick={() => setIsRegistering(!isRegistering)} className="w-full text-sm text-slate-500 hover:text-blue-400">
+                        {isRegistering ? '¿Ya tienes cuenta? Ingresa' : '¿No tienes cuenta? Regístrate'}
+                    </button>
+                </div>
+            )}
           </div>
 
           {/* Tarjeta 1: Información */}
@@ -579,6 +649,27 @@ const Settings: React.FC<SettingsProps> = ({
           </p>
           
           <div className="space-y-4">
+            <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-2xl">
+              <h3 className="text-red-400 font-bold text-sm mb-1 flex items-center gap-2"><AlertTriangle size={14}/> Zona de Peligro</h3>
+              <p className="text-slate-500 text-xs mb-4">Esta acción borrará permanentemente todos los servicios, costos y cotizaciones locales. La configuración volverá a los valores predeterminados.</p>
+              
+              <button 
+                onClick={() => {
+                  if(window.confirm('¿ESTÁS SEGURO? Esta acción borrará TODOS los datos locales y restablecerá la configuración.')) {
+                    if(window.confirm('CONFIRMACIÓN FINAL: Se perderán todos los datos no respaldados. ¿Continuar?')) {
+                      // Limpiar localStorage completamente
+                      localStorage.clear();
+                      // Forzar recarga limpia
+                      window.location.href = window.location.origin;
+                    }
+                  }
+                }}
+                className="w-full py-3 bg-slate-900 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                <RotateCcw size={18} /> Restablecer Datos de Fábrica
+              </button>
+            </div>
+
             {/* Servicios */}
             <div className="flex gap-2">
                 <button 
@@ -673,11 +764,14 @@ const Settings: React.FC<SettingsProps> = ({
             <div>
               <label className="block text-sm font-bold text-slate-300 mb-2">Logo del Taller</label>
               <div className="flex items-start gap-4">
-                 <div className="w-24 h-24 bg-slate-900 border border-slate-600 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                 <div className="w-24 h-24 bg-slate-900 border border-slate-600 rounded-xl flex flex-col items-center justify-center overflow-hidden shrink-0 group hover:border-blue-500/50 transition-colors">
                     {settings.logoUrl ? (
                        <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
-                       <ImageIcon className="text-slate-600" size={32} />
+                       <>
+                        <ImageIcon className="text-slate-600 group-hover:text-blue-500/50 transition-colors" size={32} />
+                        <span className="text-[10px] text-slate-500 font-bold uppercase mt-1">Sube tu Logo</span>
+                       </>
                     )}
                  </div>
                  <div className="flex flex-col gap-2">

@@ -1,0 +1,17 @@
+{
+  "name": "TallerManager Genérico",
+  "short_name": "TallerManager",
+  "description": "Gestiona tu taller de forma eficiente, organiza servicios, cotizaciones y descarga archivos en PDF.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/app_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
