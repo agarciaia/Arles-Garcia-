@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { User, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebase';
-import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut, Mail, Lock, UserPlus } from 'lucide-react';
+import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut, Mail, Lock, UserPlus, HardDrive } from 'lucide-react';
 
 interface SettingsProps {
   user: User | null;
@@ -33,12 +33,124 @@ const Settings: React.FC<SettingsProps> = ({
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [resetConfirmStep, setResetConfirmStep] = useState<0 | 1 | 2>(0);
+  const [resetInputWord, setResetInputWord] = useState('');
 
   // Refs for file inputs
   const serviceInputRef = useRef<HTMLInputElement>(null);
   const costInputRef = useRef<HTMLInputElement>(null);
   const quoteInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const fullBackupInputRef = useRef<HTMLInputElement>(null);
+
+  // --- STORAGE BREAKDOWN AND VALUE CALCULATORS ---
+  const getStorageBreakdown = () => {
+    const getBytes = (key: string) => {
+      const val = localStorage.getItem(key);
+      // UTF-16 character is 2 bytes
+      return val ? (val.length + key.length) * 2 : 0;
+    };
+
+    const servicesBytes = getBytes('taller_services');
+    const costsBytes = getBytes('taller_costs');
+    const quotesBytes = getBytes('taller_quotes');
+    const settingsBytes = getBytes('taller_settings');
+    
+    // Exact weight of the Base64 image
+    let logoBytes = 0;
+    if (settings.logoUrl) {
+      logoBytes = settings.logoUrl.length * 2;
+    }
+
+    const otherSettingsBytes = Math.max(0, settingsBytes - logoBytes);
+    const totalBytes = servicesBytes + costsBytes + quotesBytes + settingsBytes;
+    
+    // Standard secure browser limit of 5MB
+    const limitBytes = 5 * 1024 * 1024; 
+    
+    return {
+      services: servicesBytes,
+      costs: costsBytes,
+      quotes: quotesBytes,
+      logo: logoBytes,
+      settings: otherSettingsBytes,
+      total: totalBytes,
+      limit: limitBytes,
+      free: Math.max(0, limitBytes - totalBytes),
+      percent: Math.min(100, (totalBytes / limitBytes) * 100)
+    };
+  };
+
+  const getLogoOriginalSize = () => {
+    if (!settings.logoUrl) return 0;
+    // Base64-encoded strings carry approximately 3/4 (75%) of the actual bytes in binary
+    return Math.round(settings.logoUrl.length * 0.75);
+  };
+
+  // --- FULL JSON BACKUP & RESTORE HELPERS ---
+  const exportFullBackupJSON = () => {
+    const backupData = {
+      services,
+      costs,
+      quotes,
+      settings,
+      backupVersion: '1.0',
+      exportedAt: new Date().toISOString()
+    };
+
+    const jsonString = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `respaldo_completo_taller_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleImportFullBackupJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        let importedCount = 0;
+        
+        if (data.services && Array.isArray(data.services)) {
+          setServices(data.services);
+          importedCount++;
+        }
+        if (data.costs && Array.isArray(data.costs)) {
+          setCosts(data.costs);
+          importedCount++;
+        }
+        if (data.quotes && Array.isArray(data.quotes)) {
+          setQuotes(data.quotes);
+          importedCount++;
+        }
+        if (data.settings && typeof data.settings === 'object') {
+          setSettings(data.settings);
+          importedCount++;
+        }
+
+        if (importedCount > 0) {
+          alert('🛡️ ¡Respaldo completo de seguridad restaurado exitosamente!\n\nSe han restaurado la información de servicios, gastos, cotizaciones y la configuración del taller.');
+          window.location.reload();
+        } else {
+          alert('El archivo no posee un formato de respaldo válido o está vacío.');
+        }
+      } catch (err) {
+        alert('Error al leer el archivo de configuración. Asegúrate de seleccionar un archivo .json de respaldo válido.');
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input value so same file can be imported again
+    e.target.value = '';
+  };
 
   const handleChange = (field: keyof AppSettings, value: string) => {
     setSettings(prev => ({ ...prev, [field]: value }));
@@ -446,19 +558,26 @@ const Settings: React.FC<SettingsProps> = ({
   );
 
   const handleSignIn = async (providerOverride?: GoogleAuthProvider) => {
+    if (isAuthLoading) return;
+    setIsAuthLoading(true);
     setAuthError('');
     try {
       await signInWithPopup(auth, providerOverride || googleProvider);
     } catch (error: any) {
       if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        setIsAuthLoading(false);
         return;
       }
       setAuthError('Error al iniciar sesión con Google.');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthLoading) return;
+    setIsAuthLoading(true);
     setAuthError('');
     try {
       if (isRegistering) {
@@ -470,7 +589,13 @@ const Settings: React.FC<SettingsProps> = ({
       setPassword('');
     } catch (error: any) {
         console.error(error);
+        if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+          setIsAuthLoading(false);
+          return;
+        }
         setAuthError(error.message);
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -506,20 +631,38 @@ const Settings: React.FC<SettingsProps> = ({
                        provider.setCustomParameters({ prompt: 'select_account' });
                        handleSignIn(provider);
                      }}
-                     className="px-3 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium hover:text-white hover:border-blue-500/50 transition-colors"
+                     disabled={isAuthLoading}
+                     className="px-3 py-2 bg-slate-900 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium hover:text-white hover:border-blue-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                    >
                      Cambiar
                    </button>
-                   <button onClick={() => signOut(auth)} className="px-3 py-2 bg-red-900/20 border border-red-500/30 text-red-500 rounded-lg text-xs font-medium hover:bg-red-500 hover:text-white transition-all">
+                   <button 
+                     onClick={() => signOut(auth)} 
+                     disabled={isAuthLoading}
+                     className="px-3 py-2 bg-red-900/20 border border-red-500/30 text-red-500 rounded-lg text-xs font-medium hover:bg-red-500 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                   >
                      Cerrar Sesión
                    </button>
                  </div>
                </div>
             ) : (
                 <div className="space-y-6">
-                    <button onClick={() => handleSignIn()} className="w-full py-3 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-3">
-                        <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-                        Acceder con Google
+                    <button 
+                      onClick={() => handleSignIn()} 
+                      disabled={isAuthLoading}
+                      className="w-full py-3 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-75 disabled:cursor-not-allowed"
+                    >
+                        {isAuthLoading ? (
+                          <span className="flex items-center gap-2">
+                            <span className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></span>
+                            Iniciando sesión...
+                          </span>
+                        ) : (
+                          <>
+                            <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+                            Acceder con Google
+                          </>
+                        )}
                     </button>
 
                     <div className="relative flex items-center py-2">
@@ -533,22 +676,39 @@ const Settings: React.FC<SettingsProps> = ({
                             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                             <input 
                                 type="email" placeholder="Email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none"
+                                disabled={isAuthLoading}
+                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
                             />
                         </div>
                         <div className="relative">
                             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                             <input 
                                 type="password" placeholder="Contraseña" required value={password} onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none"
+                                disabled={isAuthLoading}
+                                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl py-3 pl-12 pr-4 text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
                             />
                         </div>
                         {authError && <p className="text-red-400 text-xs px-1">{authError}</p>}
-                        <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all active:scale-95">
-                            {isRegistering ? 'Registrarse' : 'Ingresar'}
+                        <button 
+                          type="submit" 
+                          disabled={isAuthLoading}
+                          className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isAuthLoading ? (
+                              <span className="flex items-center justify-center gap-2">
+                                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                Cargando...
+                              </span>
+                            ) : (
+                              isRegistering ? 'Registrarse' : 'Ingresar'
+                            )}
                         </button>
                     </form>
-                    <button onClick={() => setIsRegistering(!isRegistering)} className="w-full text-sm text-slate-500 hover:text-blue-400">
+                    <button 
+                      onClick={() => setIsRegistering(!isRegistering)} 
+                      disabled={isAuthLoading}
+                      className="w-full text-sm text-slate-500 hover:text-blue-400 disabled:opacity-50"
+                    >
                         {isRegistering ? '¿Ya tienes cuenta? Ingresa' : '¿No tienes cuenta? Regístrate'}
                     </button>
                 </div>
@@ -629,7 +789,11 @@ const Settings: React.FC<SettingsProps> = ({
 
   // --- SUB-SECCIÓN: GESTIÓN DE DATOS ---
   if (activeSection === 'data') {
-    // ... (Keep existing code for data export/import)
+    const stats = getStorageBreakdown();
+    const usedMB = stats.total / (1024 * 1024);
+    const limitMB = stats.limit / (1024 * 1024);
+    const freeMB = stats.free / (1024 * 1024);
+
     return (
       <div className="space-y-6 pb-20 animate-fade-in">
         <button onClick={() => setActiveSection('menu')} className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 group">
@@ -640,41 +804,144 @@ const Settings: React.FC<SettingsProps> = ({
         <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain,application/csv,text/x-csv,application/x-csv,text/comma-separated-values,text/x-comma-separated-values" ref={serviceInputRef} className="hidden" onChange={handleImportServices} />
         <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain,application/csv,text/x-csv,application/x-csv,text/comma-separated-values,text/x-comma-separated-values" ref={costInputRef} className="hidden" onChange={handleImportCosts} />
         <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain,application/csv,text/x-csv,application/x-csv,text/comma-separated-values,text/x-comma-separated-values" ref={quoteInputRef} className="hidden" onChange={handleImportQuotes} />
+        <input type="file" accept=".json,application/json" ref={fullBackupInputRef} className="hidden" onChange={handleImportFullBackupJSON} />
 
+        {/* INDICADORES DE ALMACENAMIENTO (TELEMETRÍA) */}
         <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 shadow-lg">
-          <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Database className="text-yellow-500"/> Gestión de Datos</h2>
+          <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+            <HardDrive className="text-blue-400 shrink-0" size={22} /> Telemetría de Almacenamiento
+          </h2>
+          <p className="text-slate-400 text-sm mb-5">
+            Tus datos se guardan de forma <strong>100% local, privada y segura</strong> en tu navegador. Consulta aquí el peso detallado de tu información.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
+              <span className="text-xs text-slate-500 uppercase font-bold block">Espacio Ocupado</span>
+              <span className="text-lg font-extrabold text-blue-405 font-mono">{usedMB.toFixed(3)} MB</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">De un máximo de {limitMB.toFixed(1)} MB</span>
+            </div>
+            
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
+              <span className="text-xs text-slate-500 uppercase font-bold block">Espacio Disponible</span>
+              <span className="text-lg font-extrabold text-emerald-400 font-mono">{freeMB.toFixed(3)} MB</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">Espacio libre garantizado</span>
+            </div>
+
+            <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
+              <span className="text-xs text-slate-500 uppercase font-bold block">Uso del Límite</span>
+              <span className="text-lg font-extrabold text-orange-400 font-mono">{stats.percent.toFixed(2)}%</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">Consumo total estimado</span>
+            </div>
+          </div>
+
+          {/* Gráfico de Barra de Progreso */}
+          <div className="mb-6">
+            <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
+              <span>Capacidad de Almacenamiento Local (Límite: 5 Megabytes)</span>
+              <span>{stats.percent.toFixed(1)}% Usado</span>
+            </div>
+            <div className="w-full bg-slate-900 h-3.5 rounded-full overflow-hidden border border-slate-750 p-0.5">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 ${
+                  stats.percent > 85 ? 'bg-red-500' : stats.percent > 50 ? 'bg-orange-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${stats.percent}%` }}
+              />
+            </div>
+            {stats.percent > 80 && (
+              <p className="text-xs text-red-400 font-bold mt-2 flex items-center gap-1">
+                <AlertTriangle size={12} /> ¡Atención! Has consumido la mayor parte del almacenamiento de tu navegador. Considera comprimir tu logo o depurar registros antiguos.
+              </p>
+            )}
+          </div>
+
+          {/* Desglose detallado */}
+          <div className="border-t border-slate-700/50 pt-4">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Distribución del espacio ocupado</h3>
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Base de Servicios:
+                </span>
+                <span className="text-slate-200 font-mono font-medium">{(stats.services / 1024).toFixed(3)} KB ({services.length} registros)</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span> Gastos y Finanzas:
+                </span>
+                <span className="text-slate-200 font-mono font-medium">{(stats.costs / 1024).toFixed(3)} KB ({costs.length} registros)</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-400"></span> Cartera de Cotizaciones:
+                </span>
+                <span className="text-slate-200 font-mono font-medium">{(stats.quotes / 1024).toFixed(3)} KB ({quotes.length} registros)</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span> Imagen del Logotipo:
+                </span>
+                <span className="text-slate-200 font-mono font-medium font-bold">
+                  {settings.logoUrl ? `${(stats.logo / 1024).toFixed(1)} KB` : 'No configurado (0 KB)'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400"></span> Ajustes del Sistema y Plantillas:
+                </span>
+                <span className="text-slate-200 font-mono font-medium">{(stats.settings / 1024).toFixed(3)} KB</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RESPALDO TOTAL DE SEGURIDAD (CONTRAPÉRDIDA) */}
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 shadow-lg">
+          <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+            <Download className="text-emerald-400" size={22} /> Respaldos de Seguridad Totales (.JSON)
+          </h2>
+          <p className="text-slate-400 text-sm mb-5">
+            ¡Descarga un respaldo completo con un solo clic! Guarda tu archivo <strong>JSON</strong> fuera del navegador para evitar pérdida accidental de información al formatear el equipo.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button 
+              onClick={exportFullBackupJSON}
+              className="px-5 py-4 bg-emerald-950/30 border border-emerald-500/30 hover:border-emerald-550 hover:bg-emerald-900/15 text-emerald-400 hover:text-white rounded-xl text-sm font-bold transition-all flex flex-col items-center gap-2 justify-center shadow-md active:scale-95 group"
+            >
+              <Download size={24} className="group-hover:translate-y-0.5 transition-transform" />
+              <span>Descargar Respaldo Completo (.JSON)</span>
+              <span className="text-[10px] text-emerald-500/80 font-normal">Súper seguro - Un solo archivo para todo</span>
+            </button>
+            
+            <button 
+              onClick={() => fullBackupInputRef.current?.click()}
+              className="px-5 py-4 bg-blue-950/30 border border-blue-500/30 hover:border-blue-550 hover:bg-blue-900/15 text-blue-400 hover:text-white rounded-xl text-sm font-bold transition-all flex flex-col items-center gap-2 justify-center shadow-md active:scale-95 group"
+            >
+              <Upload size={24} className="group-hover:-translate-y-0.5 transition-transform" />
+              <span>Cargar Respaldo Completo (.JSON)</span>
+              <span className="text-[10px] text-blue-500/80 font-normal">Restaura toda tu base de datos al instante</span>
+            </button>
+          </div>
+        </div>
+
+        {/* EXPORTACIÓN DE TABLAS EXCEL/CSV */}
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 shadow-lg">
+          <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+            <Database className="text-yellow-500"/> Exportar / Importar por Tablas (Excel/CSV)
+          </h2>
           <p className="text-slate-400 text-sm mb-6">
-            Descarga tus datos en Excel (CSV) para respaldo o súbelos para restaurar información. 
-            <span className="block mt-2 text-yellow-500/80 flex items-center gap-1 text-xs"><AlertTriangle size={12}/> Al importar, los registros con el mismo ID serán actualizados.</span>
+            Descarga individual de tablas en formato Excel (CSV) o importar de forma granular por cada módulo. Muy útil para análisis externo.
           </p>
           
           <div className="space-y-4">
-            <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-2xl">
-              <h3 className="text-red-400 font-bold text-sm mb-1 flex items-center gap-2"><AlertTriangle size={14}/> Zona de Peligro</h3>
-              <p className="text-slate-500 text-xs mb-4">Esta acción borrará permanentemente todos los servicios, costos y cotizaciones locales. La configuración volverá a los valores predeterminados.</p>
-              
-              <button 
-                onClick={() => {
-                  if(window.confirm('¿ESTÁS SEGURO? Esta acción borrará TODOS los datos locales y restablecerá la configuración.')) {
-                    if(window.confirm('CONFIRMACIÓN FINAL: Se perderán todos los datos no respaldados. ¿Continuar?')) {
-                      // Limpiar localStorage completamente
-                      localStorage.clear();
-                      // Forzar recarga limpia
-                      window.location.href = window.location.origin;
-                    }
-                  }
-                }}
-                className="w-full py-3 bg-slate-900 border border-red-500/30 text-red-500 hover:bg-red-600 hover:text-white rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
-              >
-                <RotateCcw size={18} /> Restablecer Datos de Fábrica
-              </button>
-            </div>
-
             {/* Servicios */}
             <div className="flex gap-2">
                 <button 
                   onClick={exportServices}
-                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-blue-500/50 transition-all group"
+                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-blue-500/50 transition-all group"
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><LayoutTemplate size={20} /></div>
@@ -687,7 +954,7 @@ const Settings: React.FC<SettingsProps> = ({
                 </button>
                 <button 
                   onClick={() => serviceInputRef.current?.click()}
-                  className="px-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-blue-500/50 transition-all group flex flex-col items-center justify-center gap-1"
+                  className="px-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-blue-500/50 transition-all group flex flex-col items-center justify-center gap-1"
                   title="Subir Archivo de Servicios"
                 >
                    <Upload size={20} className="text-slate-500 group-hover:text-blue-400 transition-colors" />
@@ -699,7 +966,7 @@ const Settings: React.FC<SettingsProps> = ({
             <div className="flex gap-2">
                 <button 
                   onClick={exportCosts}
-                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-red-500/50 transition-all group"
+                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-red-500/50 transition-all group"
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-red-500/20 rounded-lg text-red-400"><LayoutTemplate size={20} /></div>
@@ -712,7 +979,7 @@ const Settings: React.FC<SettingsProps> = ({
                 </button>
                 <button 
                   onClick={() => costInputRef.current?.click()}
-                  className="px-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-red-500/50 transition-all group flex flex-col items-center justify-center gap-1"
+                  className="px-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-red-500/50 transition-all group flex flex-col items-center justify-center gap-1"
                   title="Subir Archivo de Costos"
                 >
                    <Upload size={20} className="text-slate-500 group-hover:text-red-400 transition-colors" />
@@ -724,7 +991,7 @@ const Settings: React.FC<SettingsProps> = ({
             <div className="flex gap-2">
                 <button 
                   onClick={exportQuotes}
-                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-green-500/50 transition-all group"
+                  className="flex-1 flex items-center justify-between p-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-green-500/50 transition-all group"
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-green-500/20 rounded-lg text-green-400"><LayoutTemplate size={20} /></div>
@@ -737,7 +1004,7 @@ const Settings: React.FC<SettingsProps> = ({
                 </button>
                 <button 
                   onClick={() => quoteInputRef.current?.click()}
-                  className="px-4 bg-slate-900 border border-slate-600 rounded-xl hover:bg-slate-700 hover:border-green-500/50 transition-all group flex flex-col items-center justify-center gap-1"
+                  className="px-4 bg-slate-900 border border-slate-650 rounded-xl hover:bg-slate-700 hover:border-green-500/50 transition-all group flex flex-col items-center justify-center gap-1"
                   title="Subir Archivo de Cotizaciones"
                 >
                    <Upload size={20} className="text-slate-500 group-hover:text-green-400 transition-colors" />
@@ -745,6 +1012,122 @@ const Settings: React.FC<SettingsProps> = ({
                 </button>
             </div>
           </div>
+        </div>
+
+        {/* ZONA DE PELIGRO: REINICIO COMPLETO (Soporte seguro en Sandbox Iframe sin modals bloqueados) */}
+        <div className="p-5 bg-red-950/20 border border-red-500/35 rounded-2xl">
+          <h3 className="text-red-400 font-extrabold text-sm mb-1.5 flex items-center gap-2">
+            <AlertTriangle size={16} /> Zona de Peligro: Restablecer de Fábrica
+          </h3>
+          
+          {resetConfirmStep === 0 && (
+            <>
+              <p className="text-slate-450 text-xs mb-4 leading-relaxed">
+                Esta acción borrará permanentemente de tu navegador toda la información del taller, incluyendo todas las órdenes de servicios, gastos, presupuestos y configuraciones de marca. Dejará la app 100% nueva y vacía.
+              </p>
+              <button 
+                onClick={() => {
+                  setResetConfirmStep(1);
+                  setResetInputWord('');
+                }}
+                className="w-full py-3.5 bg-red-900 hover:bg-red-700 text-white rounded-xl text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg hover:shadow-red-900/30"
+              >
+                <RotateCcw size={18} /> Restablecer y Dejar en Blanco de Fábrica
+              </button>
+            </>
+          )}
+
+          {resetConfirmStep === 1 && (
+            <div className="space-y-3 bg-red-950/40 p-4 rounded-xl border border-red-500/20 animate-fade-in">
+              <span className="text-red-400 text-xs font-bold block uppercase tracking-wider">⚠️ PASO 1/2: CONFIRMACIÓN DE SEGURIDAD</span>
+              <p className="text-slate-200 text-xs leading-relaxed">
+                ¿Estás completamente seguro de que deseas eliminar TODOS los datos de la aplicación? Se borrarán de forma inmediata y definitiva:
+              </p>
+              <ul className="text-slate-300 text-xs space-y-1 list-disc list-inside bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
+                <li>Órdenes de Servicio: <span className="font-bold text-red-400 font-mono">{services.length}</span> registros</li>
+                <li>Módulo de Gastos: <span className="font-bold text-red-400 font-mono">{costs.length}</span> registros</li>
+                <li>Cotizaciones/Presupuestos: <span className="font-bold text-red-400 font-mono">{quotes.length}</span> registros</li>
+                <li>Color de tema, nombre, dirección, teléfono y logotipo de la empresa</li>
+              </ul>
+              <p className="text-orange-400 font-bold text-[11px]">
+                🚨 Esta acción NO se puede deshacer. Se recomienda descargar un Respaldo Completo (.JSON) de seguridad más arriba si deseas conservar tu información.
+              </p>
+              <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                <button
+                  type="button"
+                  onClick={() => setResetConfirmStep(0)}
+                  className="py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold rounded-lg text-xs transition-colors"
+                >
+                  Cancelar / Volver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetConfirmStep(2)}
+                  className="py-2.5 bg-red-800 hover:bg-red-700 text-white font-extrabold rounded-lg text-xs transition-colors"
+                >
+                  Sí, continuar al paso final
+                </button>
+              </div>
+            </div>
+          )}
+
+          {resetConfirmStep === 2 && (
+            <div className="space-y-3 bg-red-950/40 p-4 rounded-xl border border-red-500/20 animate-fade-in">
+              <span className="text-red-400 text-xs font-bold block uppercase tracking-wider">🚨 PASO 2/2: PALABRA DE CONFIRMACIÓN CLAVE</span>
+              <p className="text-slate-200 text-xs leading-relaxed">
+                Para evitar un borrado accidental o clics erróneos, escribe por favor la palabra <strong className="text-red-400 font-bold font-mono tracking-wider bg-slate-900 px-1 py-0.5 rounded border border-red-500/10">BORRAR</strong> en mayúsculas a continuación para habilitar la destrucción de fábrica:
+              </p>
+              
+              <input
+                type="text"
+                placeholder="Escribe BORRAR aquí"
+                value={resetInputWord}
+                onChange={(e) => setResetInputWord(e.target.value)}
+                className="w-full bg-slate-900 border border-red-500/40 rounded-lg py-2.5 px-4 text-sm text-center font-black text-red-400 focus:border-red-500 focus:outline-none tracking-widest uppercase placeholder-slate-600 focus:ring-1 focus:ring-red-500"
+              />
+
+              <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetConfirmStep(0);
+                    setResetInputWord('');
+                  }}
+                  className="py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold rounded-lg text-xs transition-colors"
+                >
+                  Volver al inicio
+                </button>
+                <button
+                  type="button"
+                  disabled={resetInputWord !== 'BORRAR'}
+                  onClick={() => {
+                    // Limpiar localStorage completo de forma limpia
+                    localStorage.clear();
+                    
+                    // Resetear de inmediato los estados cargados en esta sesión
+                    setServices([]);
+                    setCosts([]);
+                    setQuotes([]);
+                    setSettings({
+                      themeColor: 'blue',
+                      companyName: '',
+                      companyAddress: '',
+                      companyPhone: '',
+                      logoUrl: undefined,
+                      whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
+                      whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
+                    });
+                    
+                    // Forzar recarga limpia
+                    window.location.reload();
+                  }}
+                  className="py-2.5 bg-red-650 hover:bg-red-750 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold rounded-lg text-xs transition-all flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw size={14} /> ¡SÍ, BORRAR TODO YA!
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -789,14 +1172,31 @@ const Settings: React.FC<SettingsProps> = ({
                        <Upload size={16} /> Subir Imagen
                     </button>
                     {settings.logoUrl && (
-                       <button 
-                          onClick={removeLogo} 
-                          className="px-4 py-2 bg-slate-900 hover:bg-red-900/30 text-red-400 hover:text-red-300 border border-slate-700 hover:border-red-500/30 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                       >
-                          <Trash2 size={16} /> Eliminar
-                       </button>
+                       <div className="flex flex-col gap-1">
+                          <button 
+                             onClick={removeLogo} 
+                             className="px-4 py-2 bg-slate-900 hover:bg-red-900/30 text-red-400 hover:text-red-300 border border-slate-700 hover:border-red-500/30 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 self-start"
+                          >
+                             <Trash2 size={16} /> Eliminar
+                          </button>
+                          
+                          <div className="text-[11px] bg-slate-900/60 p-2.5 rounded-xl border border-slate-700/50 max-w-[240px]">
+                            <span className="text-slate-400 block font-medium">Peso de la foto original:</span>
+                            <span className="text-blue-400 font-bold font-mono">
+                              {(getLogoOriginalSize() / 1024).toFixed(1)} KB
+                            </span>
+                            <span className="text-[9px] text-slate-500 block mt-0.5">
+                              (Equivale a ~{( (getLogoOriginalSize() * 2.66) / 1024).toFixed(1)} KB de almacenamiento local)
+                            </span>
+                            {(getLogoOriginalSize() > 200 * 1024) && (
+                              <div className="mt-1 text-orange-400 text-[10px] font-bold">
+                                ⚠️ Imagen muy pesada. Recomendamos menos de 150 KB para no saturar tu espacio.
+                              </div>
+                            )}
+                          </div>
+                       </div>
                     )}
-                    <p className="text-xs text-slate-500 mt-1">Se mostrará en los PDF generados.</p>
+                    <p className="text-xs text-slate-500 mt-1">Se mostrará en los PDF generados. 💡 Recomendamos usar imágenes comprimidas y livianas para ahorrar memoria.</p>
                  </div>
               </div>
             </div>

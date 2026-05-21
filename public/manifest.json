@@ -1,0 +1,25 @@
+{
+  "name": "TallerManager AI - Gestión de Taller",
+  "short_name": "TallerManager",
+  "description": "Organiza e incrementa la productividad de tu taller mecánico. Controla órdenes de servicio, gastos, clientes y presupuestos fuera de línea.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/app_icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
