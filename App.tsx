@@ -1,28 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
 import Sidebar from './components/Sidebar';
-import Dashboard from './components/Dashboard';
-import Services from './components/Services';
-import Quotes from './components/Quotes';
-import Costs from './components/Costs';
-import Settings from './components/Settings';
-import Guide from './components/Guide';
 import { AppView, Service, Cost, Quote, AppSettings, UserRole } from './types';
 import { Menu, X, Maximize, Minimize } from 'lucide-react';
+import { saveWorkshopState, subscribeToWorkshopState } from './services/cloudData';
+
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Services = lazy(() => import('./components/Services'));
+const Quotes = lazy(() => import('./components/Quotes'));
+const Costs = lazy(() => import('./components/Costs'));
+const Settings = lazy(() => import('./components/Settings'));
+const Guide = lazy(() => import('./components/Guide'));
 
 const initialServices: Service[] = [];
 const initialCosts: Cost[] = [];
 const initialQuotes: Quote[] = [];
+const LOCAL_OWNER_KEY = 'taller_owner_uid';
 
 const defaultSettings: AppSettings = {
   themeColor: 'blue',
   companyName: 'Ingrese nombre de su taller',
   companyAddress: 'Dirección de su taller',
   companyPhone: 'Teléfono de contacto',
+  mechanicName: 'Freddy Rincón',
   logoUrl: '',
   whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
   whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
+};
+
+const persistLocal = (key: string, value: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error(`No fue posible guardar ${key} en el dispositivo.`, error);
+  }
 };
 
 function App() {
@@ -34,14 +46,10 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser?.email) {
-        // LÓGICA DE ROLES: 
-        // 1. Admin: Si el correo contiene "admin" o es el correo del desarrollador
-        // 2. Profesor: Si contiene "profe"
-        // 3. Alumno: Cualquier otro correo autenticado
-        if (currentUser.email.includes('admin') || currentUser.email === 'ag.analisis247@gmail.com') {
+        // El rol nunca debe inferirse desde palabras contenidas en el correo.
+        // Hasta contar con roles administrados desde servidor, solo la cuenta propietaria es admin.
+        if (currentUser.email === 'ag.analisis247@gmail.com') {
           setRole('admin');
-        } else if (currentUser.email.includes('profe')) {
-          setRole('profesor');
         } else {
           setRole('alumno');
         }
@@ -83,6 +91,9 @@ function App() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>('local');
+  const [cloudReady, setCloudReady] = useState(false);
+  const lastCloudState = useRef('');
 
   // Close mobile menu on view change
   useEffect(() => {
@@ -90,10 +101,82 @@ function App() {
   }, [currentView]);
 
   // Persistence Effects
-  useEffect(() => { localStorage.setItem('taller_services', JSON.stringify(services)); }, [services]);
-  useEffect(() => { localStorage.setItem('taller_costs', JSON.stringify(costs)); }, [costs]);
-  useEffect(() => { localStorage.setItem('taller_quotes', JSON.stringify(quotes)); }, [quotes]);
-  useEffect(() => { localStorage.setItem('taller_settings', JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { persistLocal('taller_services', services); }, [services]);
+  useEffect(() => { persistLocal('taller_costs', costs); }, [costs]);
+  useEffect(() => { persistLocal('taller_quotes', quotes); }, [quotes]);
+  useEffect(() => { persistLocal('taller_settings', settings); }, [settings]);
+
+  // Firestore is the durable source of truth while localStorage remains an offline cache.
+  useEffect(() => {
+    setCloudReady(false);
+    lastCloudState.current = '';
+    if (!user) {
+      setSyncStatus('local');
+      return;
+    }
+
+    setSyncStatus('syncing');
+    return subscribeToWorkshopState(
+      user.uid,
+      async (remoteState) => {
+        try {
+          if (remoteState) {
+            const normalized = JSON.stringify(remoteState);
+            lastCloudState.current = normalized;
+            setServices(remoteState.services);
+            setCosts(remoteState.costs);
+            setQuotes(remoteState.quotes);
+            setSettings({ ...defaultSettings, ...remoteState.settings });
+            localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
+          } else {
+            // Solo migramos la copia local si pertenece a esta cuenta (o si todavía
+            // no tenía propietario). Esto evita copiar datos de otro usuario del navegador.
+            const localOwner = localStorage.getItem(LOCAL_OWNER_KEY);
+            const canMigrateLocalData = !localOwner || localOwner === user.uid;
+            const seedState = canMigrateLocalData
+              ? { services, costs, quotes, settings }
+              : { services: initialServices, costs: initialCosts, quotes: initialQuotes, settings: defaultSettings };
+            setServices(seedState.services);
+            setCosts(seedState.costs);
+            setQuotes(seedState.quotes);
+            setSettings(seedState.settings);
+            await saveWorkshopState(user.uid, seedState);
+            localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
+            lastCloudState.current = JSON.stringify(seedState);
+          }
+          setCloudReady(true);
+          setSyncStatus('synced');
+        } catch {
+          setCloudReady(true);
+          setSyncStatus('error');
+        }
+      },
+      () => {
+        setCloudReady(true);
+        setSyncStatus('error');
+      },
+    );
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !cloudReady) return;
+    const state = { services, costs, quotes, settings };
+    const serialized = JSON.stringify(state);
+    if (serialized === lastCloudState.current) return;
+
+    setSyncStatus('syncing');
+    const timer = window.setTimeout(async () => {
+      try {
+        await saveWorkshopState(user.uid, state);
+        localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
+        lastCloudState.current = serialized;
+        setSyncStatus('synced');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [user, cloudReady, services, costs, quotes, settings]);
 
   // Handle Fullscreen toggle
   const toggleFullScreen = () => {
@@ -150,6 +233,7 @@ function App() {
           setCosts={setCosts}       
           quotes={quotes}     
           setQuotes={setQuotes}     
+          syncStatus={syncStatus}
         />;
       case AppView.GUIDE:
         return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
@@ -236,7 +320,9 @@ function App() {
         {/* View Container */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto h-full">
-            {renderView()}
+            <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400">Cargando módulo…</div>}>
+              {renderView()}
+            </Suspense>
           </div>
         </main>
       </div>

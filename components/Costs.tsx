@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Cost } from '../types';
 import { Plus, DollarSign, Tag, Trash2, AlertTriangle, X, Save } from 'lucide-react';
+import { createId } from '../services/id';
 
 interface CostsProps {
   costs: Cost[];
@@ -34,7 +35,7 @@ const Costs: React.FC<CostsProps> = ({ costs, setCosts }) => {
     if (!description || amount === '') return;
 
     const newCost: Cost = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: createId(),
       description,
       amount: Number(amount),
       date: new Date().toISOString(),

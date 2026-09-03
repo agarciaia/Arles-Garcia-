@@ -1,84 +1,70 @@
-const CACHE_NAME = 'taller-manager-v1';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/app_icon.png',
+const CACHE_NAME = 'taller-manager-v2';
+const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/app_icon.png'];
+const OPTIONAL_ASSETS = [
   'https://cdn.tailwindcss.com',
-  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
 ];
 
-// Instalar Service Worker y cachear app shell
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Cacheando App Shell y recursos de CDN...');
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(CORE_ASSETS);
+    await Promise.allSettled(OPTIONAL_ASSETS.map((asset) => cache.add(asset)));
+    await self.skipWaiting();
+  })());
 });
 
-// Activar Service Worker y limpiar caches viejos
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log('[Service Worker] Eliminando cache antiguo:', cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    })
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
+    await self.clients.claim();
+  })());
 });
 
-// Estrategia de Fetch: Stale-While-Revalidate
 self.addEventListener('fetch', (event) => {
-  // Ignorar peticiones de Firebase Auth, Firestore o de Google Chrome extensiones
-  if (
-    event.request.url.includes('firebase') || 
-    event.request.url.includes('googleapis') ||
-    event.request.url.startsWith('chrome-extension') ||
-    event.request.method !== 'GET'
-  ) {
+  if (event.request.method !== 'GET') return;
+
+  const requestUrl = new URL(event.request.url);
+  const isFirebaseRequest = requestUrl.hostname.includes('firebase')
+    || requestUrl.hostname.includes('googleapis');
+  if (isFirebaseRequest) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(event.request);
+        const cache = await caches.open(CACHE_NAME);
+        cache.put('/index.html', response.clone());
+        return response;
+      } catch {
+        return (await caches.match('/index.html')) || Response.error();
+      }
+    })());
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Devolver la respuesta en cache inmediatamente y actualizarla en segundo plano
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          })
-          .catch(() => {
-            // Silenciar fallos de red al revalidar offline
-          });
-        return cachedResponse;
-      }
-
-      // Si no está en cache, ir a la red
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
+  event.respondWith((async () => {
+    const cached = await caches.match(event.request);
+    if (cached) {
+      event.waitUntil(fetch(event.request).then(async (response) => {
+        if (response.ok || response.type === 'opaque') {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, response);
         }
+      }).catch(() => undefined));
+      return cached;
+    }
 
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-
-        return response;
-      });
-    })
-  );
+    try {
+      const response = await fetch(event.request);
+      if (response.ok || response.type === 'opaque') {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
+      }
+      return response;
+    } catch {
+      return Response.error();
+    }
+  })());
 });
