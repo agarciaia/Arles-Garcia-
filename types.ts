@@ -34,7 +34,7 @@ export interface Service {
   payments?: ServicePayment[]; // New field for detailed payment tracking
   
   // Media
-  photos?: string[]; // Array of base64 strings
+  photos?: string[]; // URLs de Storage; las copias antiguas pueden contener Base64.
   
   entryDate: string;
   status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
