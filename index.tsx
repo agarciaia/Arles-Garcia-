@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './index.css';
 
 // Registrar el Service Worker para soporte PWA avanzado fuera de línea
 if ('serviceWorker' in navigator) {

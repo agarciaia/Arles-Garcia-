@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import html2pdf from 'html2pdf.js';
 import { Service, ServiceExpense, AppSettings, ServicePayment } from '../types';
 import {
   calculateLaborDiscount,
@@ -11,8 +12,6 @@ import { auth } from '../firebase';
 import { deleteServicePhoto, uploadServicePhoto } from '../services/photoStorage';
 import { createId } from '../services/id';
 import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog, FilePenLine, Eraser, Camera, Image as ImageIcon, Share2, Percent } from 'lucide-react';
-
-declare var html2pdf: any;
 
 interface ServicesProps {
   services: Service[];

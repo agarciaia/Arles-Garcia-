@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import html2pdf from 'html2pdf.js';
 import { Quote, QuoteItem, AppSettings, Service, AppView } from '../types';
 import { calculateQuoteTotal } from '../services/financials';
 import { createId } from '../services/id';
 import { Plus, Search, FileText, Printer, MessageCircle, Trash2, X, DollarSign, Calendar, User, Car, Edit, ChevronRight, Hash, Download, Share2, Save, Hammer, Box, RotateCcw, ChevronDown, Wrench, CheckCircle, UserCog, ArrowRightCircle, Ban, Check, AlertTriangle, Percent } from 'lucide-react';
-
-declare var html2pdf: any;
 
 interface QuotesProps {
   quotes: Quote[];
