@@ -229,7 +229,15 @@ export default function Services({ services, setServices, settings }: ServicesPr
               photoUrl = await uploadServicePhoto(currentUser.uid, photoServiceId, compressedBlob);
             } catch (error) {
               console.error('Error uploading service photo', error);
-              alert('No fue posible guardar la fotografía en la nube. Revisa tu conexión e inténtalo nuevamente.');
+              const errorCode = typeof error === 'object' && error && 'code' in error
+                ? String((error as { code?: unknown }).code)
+                : '';
+              const storageNotAvailable = errorCode === 'storage/bucket-not-found'
+                || errorCode === 'storage/unknown'
+                || errorCode === 'storage/unauthorized';
+              alert(storageNotAvailable
+                ? 'Las fotos en la nube todavía no están disponibles en este proyecto. El servicio y los demás datos sí se guardan correctamente.'
+                : 'No fue posible guardar la fotografía en la nube. Revisa tu conexión e inténtalo nuevamente.');
               return;
             }
             
