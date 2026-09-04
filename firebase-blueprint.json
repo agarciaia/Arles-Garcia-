@@ -51,24 +51,26 @@
         "companyName": { "type": "string" }
       },
       "required": ["companyName"]
+    },
+    "WorkshopState": {
+      "title": "WorkshopState",
+      "description": "Private workshop data owned by one authenticated Firebase user",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string" },
+        "schemaVersion": { "type": "number" },
+        "services": { "type": "array", "items": { "$ref": "Service" } },
+        "costs": { "type": "array", "items": { "$ref": "Cost" } },
+        "quotes": { "type": "array", "items": { "$ref": "Quote" } },
+        "settings": { "$ref": "AppSettings" }
+      },
+      "required": ["ownerUid", "schemaVersion", "services", "costs", "quotes", "settings"]
     }
   },
   "firestore": {
-    "/services/{serviceId}": {
-      "schema": { "$ref": "Service" },
-      "description": "Workshop services"
-    },
-    "/costs/{costId}": {
-      "schema": { "$ref": "Cost" },
-      "description": "Workshop costs"
-    },
-    "/quotes/{quoteId}": {
-      "schema": { "$ref": "Quote" },
-      "description": "Workshop quotes"
-    },
-    "/settings/{settingsId}": {
-      "schema": { "$ref": "AppSettings" },
-      "description": "Application settings"
+    "/users/{uid}/appData/workshop": {
+      "schema": { "$ref": "WorkshopState" },
+      "description": "Workshop data isolated by authenticated user UID"
     }
   }
 }

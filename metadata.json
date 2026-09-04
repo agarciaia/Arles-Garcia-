@@ -1,7 +1,5 @@
 {
-  "name": "Prototipo casi listo del taller mecánico ",
-  "description": "Aplicación para gestión de mecánica y descarga de archivos en PDF",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
+  "name": "TallerManager",
+  "description": "Gestión segura de servicios, cotizaciones, pagos y costos para talleres mecánicos",
+  "requestFramePermissions": []
 }
