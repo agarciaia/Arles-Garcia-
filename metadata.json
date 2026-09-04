@@ -1,5 +1,5 @@
 {
-  "name": "TallerManager",
+  "name": "Gestión Taller",
   "description": "Gestión segura de servicios, cotizaciones, pagos y costos para talleres mecánicos",
   "requestFramePermissions": []
 }

@@ -2,7 +2,7 @@
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 </div>
 
-# TallerManager
+# Gestión Taller
 
 Aplicación web para administrar servicios, cotizaciones, pagos y costos de un taller.
 
@@ -21,7 +21,7 @@ Requisito: Node.js 20 o superior.
 
 - La sesión utiliza Firebase Authentication.
 - Los datos operativos se sincronizan con Firestore bajo el UID de cada cuenta y conservan una copia local para trabajo sin conexión.
-- Las fotografías nuevas se guardan en Firebase Storage; se comprimen antes de subirlas.
+- La carga de fotografías nuevas está desactivada durante el piloto para mantener el proyecto en el plan sin costo.
 - Las reglas incluidas en `firestore.rules` y `storage.rules` deben publicarse en el proyecto Firebase antes de poner la aplicación en producción.
 - Ninguna clave de Gemini debe incluirse en el navegador. Las funciones de IA deben llamar a un endpoint protegido del servidor bajo `/api/gemini/*`.
 

@@ -984,7 +984,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
                          <p className="text-sm font-bold text-slate-900 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {settings.mechanicName || 'Sin asignar'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Taller</p></div><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Cliente</p></div></div>
-                      <div className="border-t-2 border-slate-200 pt-4 flex justify-between text-[10px] text-slate-500"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>
+                      <div className="border-t-2 border-slate-200 pt-4 flex justify-between text-[10px] text-slate-500"><p>Gracias por su preferencia.</p><p>Generado por Gestión Taller</p></div>
                    </div>
                 </div>
              </div>

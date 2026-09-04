@@ -98,6 +98,27 @@ export interface AppSettings {
   whatsappQuoteTemplate: string;
 }
 
+export type AccountPlan = 'trial' | 'founder';
+export type AccountStatus = 'trialing' | 'active' | 'past_due' | 'suspended';
+
+export interface AccountInfo {
+  uid: string;
+  email: string;
+  plan: AccountPlan;
+  status: AccountStatus;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  subscriptionStartedAt?: string;
+  paidThrough?: string;
+  graceUntil?: string;
+  onboardingCompleted: boolean;
+  termsAcceptedAt?: string;
+  privacyAcceptedAt?: string;
+  lastSeenAt?: string;
+  firstServiceAt?: string;
+  createdAt?: string;
+}
+
 export type UserRole = 'admin' | 'profesor' | 'alumno' | 'guest';
 
 export enum AppView {

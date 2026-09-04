@@ -76,7 +76,7 @@ const Guide: React.FC<GuideProps> = ({ onStart }) => {
         <div className="inline-flex p-3 bg-blue-500/10 rounded-2xl text-blue-400 mb-2">
           <HelpCircle size={32} />
         </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Guía de Uso de TallerManager</h1>
+        <h1 className="text-3xl font-bold text-white tracking-tight">Guía de Uso de Gestión Taller</h1>
         <p className="text-slate-400 max-w-lg mx-auto">
           Bienvenido a la plataforma de gestión para talleres mecánicos. Aquí te explicamos cómo sacar el máximo provecho a cada módulo.
         </p>

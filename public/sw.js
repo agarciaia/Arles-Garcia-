@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taller-manager-v2';
+const CACHE_NAME = 'gestion-taller-v3';
 const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/app_icon.png'];
 const OPTIONAL_ASSETS = [
   'https://cdn.tailwindcss.com',

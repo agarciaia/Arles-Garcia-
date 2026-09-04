@@ -2,9 +2,19 @@ import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
 import Sidebar from './components/Sidebar';
-import { AppView, Service, Cost, Quote, AppSettings, UserRole } from './types';
-import { Menu, X, Maximize, Minimize } from 'lucide-react';
-import { saveWorkshopState, subscribeToWorkshopState } from './services/cloudData';
+import { AccountInfo, AppView, Service, Cost, Quote, AppSettings, UserRole } from './types';
+import { AlertTriangle, Menu, X, Maximize, Minimize } from 'lucide-react';
+import {
+  ensureAccount,
+  completeOnboarding,
+  getEffectiveAccountStatus,
+  migrateWorkshopData,
+  recordActivity,
+  subscribeToAccount,
+  subscribeToWorkshopState,
+  syncWorkshopState,
+  WorkshopState,
+} from './services/cloudData';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Services = lazy(() => import('./components/Services'));
@@ -12,6 +22,7 @@ const Quotes = lazy(() => import('./components/Quotes'));
 const Costs = lazy(() => import('./components/Costs'));
 const Settings = lazy(() => import('./components/Settings'));
 const Guide = lazy(() => import('./components/Guide'));
+const Onboarding = lazy(() => import('./components/Onboarding'));
 
 const initialServices: Service[] = [];
 const initialCosts: Cost[] = [];
@@ -20,10 +31,10 @@ const LOCAL_OWNER_KEY = 'taller_owner_uid';
 
 const defaultSettings: AppSettings = {
   themeColor: 'blue',
-  companyName: 'Ingrese nombre de su taller',
-  companyAddress: 'Dirección de su taller',
-  companyPhone: 'Teléfono de contacto',
-  mechanicName: 'Freddy Rincón',
+  companyName: '',
+  companyAddress: '',
+  companyPhone: '',
+  mechanicName: '',
   logoUrl: '',
   whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
   whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
@@ -40,6 +51,7 @@ const persistLocal = (key: string, value: unknown) => {
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole>('guest');
+  const [account, setAccount] = useState<AccountInfo | null>(null);
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
 
   useEffect(() => {
@@ -47,10 +59,41 @@ function App() {
       setUser(currentUser);
       // Cada cuenta autenticada administra su propio taller. Las reglas de Firestore
       // aíslan los datos por UID, por lo que una cuenta no puede acceder a otra.
-      setRole(currentUser ? 'admin' : 'guest');
+      setRole(currentUser?.emailVerified ? 'admin' : 'guest');
     });
     return () => unsubscribe();
   }, []);
+
+  const finishOnboarding = async (nextSettings: AppSettings) => {
+    if (!user || !lastCloudState.current) throw new Error('Cuenta no preparada');
+    const nextState = { services, costs, quotes, settings: nextSettings };
+    await syncWorkshopState(user.uid, nextState, lastCloudState.current);
+    lastCloudState.current = nextState;
+    setSettings(nextSettings);
+    await completeOnboarding(user.uid);
+  };
+
+  const showReadOnlyMessage = () => {
+    window.alert('Tu período de prueba finalizó. Puedes revisar y respaldar tus datos, pero debes renovar para guardar cambios.');
+    setCurrentView(AppView.SETTINGS);
+  };
+
+  const setServicesSafely: React.Dispatch<React.SetStateAction<Service[]>> = (value) => {
+    if (canWrite) setServices(value);
+    else showReadOnlyMessage();
+  };
+  const setCostsSafely: React.Dispatch<React.SetStateAction<Cost[]>> = (value) => {
+    if (canWrite) setCosts(value);
+    else showReadOnlyMessage();
+  };
+  const setQuotesSafely: React.Dispatch<React.SetStateAction<Quote[]>> = (value) => {
+    if (canWrite) setQuotes(value);
+    else showReadOnlyMessage();
+  };
+  const setSettingsSafely: React.Dispatch<React.SetStateAction<AppSettings>> = (value) => {
+    if (canWrite) setSettings(value);
+    else showReadOnlyMessage();
+  };
   
   // --- Data States ---
   const [services, setServices] = useState<Service[]>(() => {
@@ -85,90 +128,99 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>('local');
   const [cloudReady, setCloudReady] = useState(false);
-  const lastCloudState = useRef('');
+  const lastCloudState = useRef<WorkshopState | null>(null);
+  const accountStatus = getEffectiveAccountStatus(account);
+  const canWrite = accountStatus === 'trialing' || accountStatus === 'active';
 
   // Close mobile menu on view change
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [currentView]);
 
-  // Persistence Effects
-  useEffect(() => { persistLocal('taller_services', services); }, [services]);
-  useEffect(() => { persistLocal('taller_costs', costs); }, [costs]);
-  useEffect(() => { persistLocal('taller_quotes', quotes); }, [quotes]);
-  useEffect(() => { persistLocal('taller_settings', settings); }, [settings]);
+  // Las claves antiguas se conservan solo hasta completar la migración. Después,
+  // Firestore usa IndexedDB como caché sin el límite reducido de localStorage.
+  useEffect(() => {
+    if (!user || !cloudReady) {
+      persistLocal('taller_services', services);
+      persistLocal('taller_costs', costs);
+      persistLocal('taller_quotes', quotes);
+      persistLocal('taller_settings', settings);
+      return;
+    }
+    ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings']
+      .forEach((key) => localStorage.removeItem(key));
+  }, [user, cloudReady, services, costs, quotes, settings]);
 
-  // Firestore is the durable source of truth while localStorage remains an offline cache.
+  // Firestore es la fuente de verdad; la caché persistente se mantiene en IndexedDB.
   useEffect(() => {
     setCloudReady(false);
-    lastCloudState.current = '';
-    if (!user) {
+    lastCloudState.current = null;
+    setAccount(null);
+    if (!user || !user.emailVerified) {
       setSyncStatus('local');
       return;
     }
 
     setSyncStatus('syncing');
-    return subscribeToWorkshopState(
-      user.uid,
-      async (remoteState) => {
-        try {
-          if (remoteState) {
-            const normalized = JSON.stringify(remoteState);
-            lastCloudState.current = normalized;
-            setServices(remoteState.services);
-            setCosts(remoteState.costs);
-            setQuotes(remoteState.quotes);
-            setSettings({ ...defaultSettings, ...remoteState.settings });
-            localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
-          } else {
-            // Solo migramos la copia local si pertenece a esta cuenta (o si todavía
-            // no tenía propietario). Esto evita copiar datos de otro usuario del navegador.
-            const localOwner = localStorage.getItem(LOCAL_OWNER_KEY);
-            const canMigrateLocalData = !localOwner || localOwner === user.uid;
-            const seedState = canMigrateLocalData
-              ? { services, costs, quotes, settings }
-              : { services: initialServices, costs: initialCosts, quotes: initialQuotes, settings: defaultSettings };
-            setServices(seedState.services);
-            setCosts(seedState.costs);
-            setQuotes(seedState.quotes);
-            setSettings(seedState.settings);
-            await saveWorkshopState(user.uid, seedState);
-            localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
-            lastCloudState.current = JSON.stringify(seedState);
-          }
+    let stopAccount = () => undefined;
+    let stopWorkshop = () => undefined;
+    let cancelled = false;
+    const start = async () => {
+      try {
+        await ensureAccount(user.uid, user.email || '');
+        const localOwner = localStorage.getItem(LOCAL_OWNER_KEY);
+        const canMigrateLocalData = !localOwner || localOwner === user.uid;
+        const fallback = canMigrateLocalData
+          ? { services, costs, quotes, settings }
+          : { services: initialServices, costs: initialCosts, quotes: initialQuotes, settings: defaultSettings };
+        await migrateWorkshopData(user.uid, fallback);
+        if (cancelled) return;
+        stopAccount = subscribeToAccount(user.uid, setAccount, () => setSyncStatus('error'));
+        stopWorkshop = subscribeToWorkshopState(user.uid, (remoteState) => {
+          lastCloudState.current = remoteState;
+          setServices(remoteState.services);
+          setCosts(remoteState.costs);
+          setQuotes(remoteState.quotes);
+          setSettings({ ...defaultSettings, ...remoteState.settings });
+          localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
           setCloudReady(true);
           setSyncStatus('synced');
-        } catch {
+        }, () => {
           setCloudReady(true);
           setSyncStatus('error');
-        }
-      },
-      () => {
+        });
+        recordActivity(user.uid).catch(() => undefined);
+      } catch {
         setCloudReady(true);
         setSyncStatus('error');
-      },
-    );
+      }
+    };
+    start();
+    return () => {
+      cancelled = true;
+      stopAccount();
+      stopWorkshop();
+    };
   }, [user]);
 
   useEffect(() => {
-    if (!user || !cloudReady) return;
+    if (!user || !cloudReady || !canWrite || !lastCloudState.current) return;
     const state = { services, costs, quotes, settings };
-    const serialized = JSON.stringify(state);
-    if (serialized === lastCloudState.current) return;
+    if (JSON.stringify(state) === JSON.stringify(lastCloudState.current)) return;
 
     setSyncStatus('syncing');
     const timer = window.setTimeout(async () => {
       try {
-        await saveWorkshopState(user.uid, state);
+        await syncWorkshopState(user.uid, state, lastCloudState.current!);
         localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
-        lastCloudState.current = serialized;
+        lastCloudState.current = state;
         setSyncStatus('synced');
       } catch {
         setSyncStatus('error');
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [user, cloudReady, services, costs, quotes, settings]);
+  }, [user, cloudReady, canWrite, services, costs, quotes, settings]);
 
   // Handle Fullscreen toggle
   const toggleFullScreen = () => {
@@ -193,44 +245,46 @@ function App() {
 
   const renderView = () => {
     // Permitir ver la Guía y la Configuración (donde está el Login) sin estar autenticado
-    if (!user && currentView !== AppView.GUIDE && currentView !== AppView.SETTINGS) {
+    if ((!user || !user.emailVerified) && currentView !== AppView.GUIDE && currentView !== AppView.SETTINGS) {
         return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
     }
 
     switch(currentView) {
       case AppView.DASHBOARD:
-        return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
+        return <Dashboard services={services} costs={costs} setServices={setServicesSafely} setCosts={setCostsSafely} />;
       case AppView.SERVICES:
         // Solo Admin y Profesor ven Servicios
         if (role === 'admin' || role === 'profesor') {
-            return <Services services={services} setServices={setServices} settings={settings} />;
+            return <Services services={services} setServices={setServicesSafely} settings={settings} />;
         }
         return <div className="p-10 text-center text-slate-400">No tienes permiso para gestionar servicios.</div>;
       case AppView.QUOTES:
-        return <Quotes quotes={quotes} setQuotes={setQuotes} settings={settings} services={services} setServices={setServices} onNavigate={setCurrentView} />;
+        return <Quotes quotes={quotes} setQuotes={setQuotesSafely} settings={settings} services={services} setServices={setServicesSafely} onNavigate={setCurrentView} />;
       case AppView.COSTS:
         // Solo el Admin ve los Costos reales
         if (role === 'admin') {
-            return <Costs costs={costs} setCosts={setCosts} />;
+            return <Costs costs={costs} setCosts={setCostsSafely} />;
         }
         return <div className="p-10 text-center text-slate-400">Acceso restringido: Solo Administración puede ver costos.</div>;
       case AppView.SETTINGS:
         return <Settings 
           user={user}
           settings={settings} 
-          setSettings={setSettings} 
-          services={services} 
-          setServices={setServices} 
-          costs={costs}       
-          setCosts={setCosts}       
-          quotes={quotes}     
-          setQuotes={setQuotes}     
+          setSettings={setSettingsSafely}
+          services={services}
+          setServices={setServicesSafely}
+          costs={costs}
+          setCosts={setCostsSafely}
+          quotes={quotes}
+          setQuotes={setQuotesSafely}
           syncStatus={syncStatus}
+          account={account}
+          canWrite={canWrite}
         />;
       case AppView.GUIDE:
         return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
       default:
-        return <Dashboard services={services} costs={costs} setServices={setServices} setCosts={setCosts} />;
+        return <Dashboard services={services} costs={costs} setServices={setServicesSafely} setCosts={setCostsSafely} />;
     }
   };
 
@@ -242,7 +296,7 @@ function App() {
       case AppView.COSTS: return 'Control de Costos';
       case AppView.SETTINGS: return 'Configuración';
       case AppView.GUIDE: return 'Guía del Taller';
-      default: return 'TallerManager';
+      default: return 'Gestión Taller';
     }
   };
 
@@ -256,6 +310,14 @@ function App() {
       default: return 'text-blue-500';
     }
   };
+
+  if (user?.emailVerified && cloudReady && account && !account.onboardingCompleted) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center">Preparando tu taller…</div>}>
+        <Onboarding settings={settings} onComplete={finishOnboarding} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
@@ -312,6 +374,15 @@ function App() {
         {/* View Container */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto h-full">
+            {(accountStatus === 'expired' || accountStatus === 'suspended') && (
+              <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-amber-100 flex items-start gap-3">
+                <AlertTriangle className="shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="font-bold">Cuenta en modo lectura</p>
+                  <p className="text-sm text-amber-100/80">Tu información sigue disponible. Renueva el Plan Fundador para volver a crear y editar registros.</p>
+                </div>
+              </div>
+            )}
             <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400">Cargando módulo…</div>}>
               {renderView()}
             </Suspense>

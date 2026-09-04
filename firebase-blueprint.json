@@ -52,25 +52,25 @@
       },
       "required": ["companyName"]
     },
-    "WorkshopState": {
-      "title": "WorkshopState",
-      "description": "Private workshop data owned by one authenticated Firebase user",
+    "Account": {
+      "title": "Account",
+      "description": "Trial and subscription state for one authenticated workshop owner",
       "type": "object",
       "properties": {
-        "ownerUid": { "type": "string" },
-        "schemaVersion": { "type": "number" },
-        "services": { "type": "array", "items": { "$ref": "Service" } },
-        "costs": { "type": "array", "items": { "$ref": "Cost" } },
-        "quotes": { "type": "array", "items": { "$ref": "Quote" } },
-        "settings": { "$ref": "AppSettings" }
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "plan": { "type": "string", "enum": ["trial", "founder"] },
+        "status": { "type": "string", "enum": ["trialing", "active", "past_due", "suspended"] },
+        "onboardingCompleted": { "type": "boolean" }
       },
-      "required": ["ownerUid", "schemaVersion", "services", "costs", "quotes", "settings"]
+      "required": ["uid", "email", "plan", "status", "onboardingCompleted"]
     }
   },
   "firestore": {
-    "/users/{uid}/appData/workshop": {
-      "schema": { "$ref": "WorkshopState" },
-      "description": "Workshop data isolated by authenticated user UID"
-    }
+    "/accounts/{uid}": { "schema": { "$ref": "Account" }, "description": "Account lifecycle isolated by UID" },
+    "/workshops/{uid}": { "schema": { "$ref": "AppSettings" }, "description": "Workshop settings owned by UID" },
+    "/workshops/{uid}/services/{serviceId}": { "schema": { "$ref": "Service" } },
+    "/workshops/{uid}/costs/{costId}": { "schema": { "$ref": "Cost" } },
+    "/workshops/{uid}/quotes/{quoteId}": { "schema": { "$ref": "Quote" } }
   }
 }

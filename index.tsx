@@ -7,7 +7,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('🛡️ TallerManager Service Worker registrado de fábrica:', registration.scope);
+        console.log('Gestión Taller está disponible sin conexión:', registration.scope);
       })
       .catch((error) => {
         console.warn('⚠️ No se pudo registrar el Service Worker (esperado en algunos navegadores de prueba):', error);

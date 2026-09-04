@@ -27,6 +27,9 @@ const COMMON_BRANDS = [
   'Jeep', 'Ram', 'Citroën', 'Renault', 'Fiat', 'Volvo'
 ];
 
+// Se habilitará cuando Storage tenga una cuota controlada para producción.
+const PHOTO_UPLOADS_ENABLED = false;
+
 export default function Services({ services, setServices, settings }: ServicesProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -817,22 +820,11 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
   return (
     <div className="space-y-6">
-      {/* Hidden file inputs for photo uploads */}
-      <input 
-        type="file" 
-        accept="image/*" 
-        capture="environment"
-        ref={cameraInputRef} 
-        className="hidden" 
-        onChange={handleFileChange} 
-      />
-      <input 
-        type="file" 
-        accept="image/*" 
-        ref={galleryInputRef} 
-        className="hidden" 
-        onChange={handleFileChange} 
-      />
+      {/* Las fotos existentes pueden verse, pero las cargas nuevas quedan desactivadas en el piloto. */}
+      {PHOTO_UPLOADS_ENABLED && <>
+        <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} className="hidden" onChange={handleFileChange} />
+        <input type="file" accept="image/*" ref={galleryInputRef} className="hidden" onChange={handleFileChange} />
+      </>}
 
       <div className="flex flex-col gap-4">
         {/* ... (Existing view header, no changes) ... */}
@@ -929,14 +921,14 @@ export default function Services({ services, setServices, settings }: ServicesPr
                         <div className="flex justify-between items-center mb-2">
                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Evidencia Fotográfica</span>
                         </div>
-                        <div className="flex gap-2 mb-3">
+                        {PHOTO_UPLOADS_ENABLED ? <div className="flex gap-2 mb-3">
                             <button onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                 <Camera size={16} /> <span className="text-xs font-bold">Cámara</span>
                             </button>
                             <button onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="flex-1 bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 border border-slate-600/30 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                 <ImageIcon size={16} /> <span className="text-xs font-bold">Galería</span>
                             </button>
-                        </div>
+                        </div> : <div className="mb-3 rounded-lg border border-slate-700 bg-slate-900/40 p-3 text-center text-xs text-slate-400">Carga de fotos desactivada durante el piloto para controlar costos.</div>}
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                             {service.photos && service.photos.length > 0 ? (
                                 service.photos.map((photo, idx) => (
@@ -1139,7 +1131,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
                   )}
               </div>
 
-              <div className="mt-4 shrink-0 flex justify-center gap-4">
+              {PHOTO_UPLOADS_ENABLED && <div className="mt-4 shrink-0 flex justify-center gap-4">
                    <button onClick={() => triggerCamera(viewingPhotoService.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-900/50 transition-all active:scale-95">
                        <Camera size={20} />
                        <span>Cámara</span>
@@ -1148,7 +1140,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
                        <ImageIcon size={20} />
                        <span>Galería</span>
                    </button>
-              </div>
+              </div>}
            </div>
         </div>
       )}
@@ -1327,7 +1319,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
                          <p className="text-sm font-bold text-slate-800 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {settings.mechanicName || 'Sin asignar'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Taller</p></div><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Cliente</p></div></div>
-                      <div className="border-t border-slate-200 pt-4 flex justify-between text-[10px] text-slate-400"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>
+                      <div className="border-t border-slate-200 pt-4 flex justify-between text-[10px] text-slate-400"><p>Gracias por su preferencia.</p><p>Generado por Gestión Taller</p></div>
                    </div>
                 </div>
              </div>

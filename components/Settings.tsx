@@ -1,9 +1,21 @@
 import React, { useState, useRef } from 'react';
 import { User, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebase';
+import {
+  auth,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  googleProvider,
+  reload,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from '../firebase';
 import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut, Mail, Lock, UserPlus, HardDrive } from 'lucide-react';
-import { AppSettings, Cost, Quote, QuoteItem, Service, ServiceExpense, ServicePayment } from '../types';
+import { AccountInfo, AppSettings, Cost, Quote, QuoteItem, Service, ServiceExpense, ServicePayment } from '../types';
 import { createId } from '../services/id';
+import { deleteAllAccountData, getEffectiveAccountStatus } from '../services/cloudData';
 
 interface SettingsProps {
   user: User | null;
@@ -16,9 +28,11 @@ interface SettingsProps {
   quotes: Quote[];
   setQuotes: React.Dispatch<React.SetStateAction<Quote[]>>;
   syncStatus: 'local' | 'syncing' | 'synced' | 'error';
+  account: AccountInfo | null;
+  canWrite: boolean;
 }
 
-type SettingsSection = 'menu' | 'company' | 'templates' | 'theme' | 'data';
+type SettingsSection = 'menu' | 'company' | 'templates' | 'theme' | 'data' | 'legal';
 
 const Settings: React.FC<SettingsProps> = ({ 
   user,
@@ -27,6 +41,8 @@ const Settings: React.FC<SettingsProps> = ({
   costs, setCosts, 
   quotes, setQuotes,
   syncStatus,
+  account,
+  canWrite,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('menu');
   const [editingTemplate, setEditingTemplate] = useState<'service' | 'quote' | null>(null);
@@ -38,6 +54,8 @@ const Settings: React.FC<SettingsProps> = ({
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [resetConfirmStep, setResetConfirmStep] = useState<0 | 1 | 2>(0);
   const [resetInputWord, setResetInputWord] = useState('');
 
@@ -178,13 +196,32 @@ const Settings: React.FC<SettingsProps> = ({
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSettings(prev => ({ ...prev, logoUrl: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      window.alert('Selecciona una imagen válida para el logotipo.');
+      return;
     }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const maxSize = 512;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const optimized = canvas.toDataURL('image/webp', 0.8);
+        if (optimized.length > 450_000) {
+          window.alert('El logotipo sigue siendo demasiado pesado. Prueba con una imagen más pequeña.');
+          return;
+        }
+        setSettings((previous) => ({ ...previous, logoUrl: optimized }));
+      };
+      image.onerror = () => window.alert('No pudimos procesar esta imagen. Prueba con otro archivo.');
+      image.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const removeLogo = () => {
@@ -578,6 +615,20 @@ const Settings: React.FC<SettingsProps> = ({
     </button>
   );
 
+  const getAuthErrorMessage = (code?: string) => {
+    const messages: Record<string, string> = {
+      'auth/email-already-in-use': 'Este correo ya tiene una cuenta. Intenta ingresar.',
+      'auth/invalid-credential': 'El correo o la contraseña no son correctos.',
+      'auth/invalid-email': 'Escribe un correo válido.',
+      'auth/missing-password': 'Escribe tu contraseña.',
+      'auth/too-many-requests': 'Se realizaron demasiados intentos. Espera unos minutos y vuelve a probar.',
+      'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+      'auth/network-request-failed': 'No pudimos conectarnos. Revisa Internet e inténtalo nuevamente.',
+      'auth/requires-recent-login': 'Por seguridad, cierra sesión, vuelve a ingresar y repite la eliminación.',
+    };
+    return messages[code || ''] || 'No fue posible completar la operación. Inténtalo nuevamente.';
+  };
+
   const handleSignIn = async (providerOverride?: GoogleAuthProvider) => {
     if (isAuthLoading) return;
     setIsAuthLoading(true);
@@ -602,7 +653,9 @@ const Settings: React.FC<SettingsProps> = ({
     setAuthError('');
     try {
       if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const credential = await createUserWithEmailAndPassword(auth, email, password);
+        await sendEmailVerification(credential.user);
+        setAuthNotice('Cuenta creada. Revisa tu correo y presiona el enlace de verificación para continuar.');
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -614,9 +667,70 @@ const Settings: React.FC<SettingsProps> = ({
           setIsAuthLoading(false);
           return;
         }
-        setAuthError(error.message);
+        setAuthError(getAuthErrorMessage(error.code));
     } finally {
       setIsAuthLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email) {
+      setAuthError('Escribe tu correo arriba y luego presiona “Recuperar contraseña”.');
+      return;
+    }
+    setIsAuthLoading(true);
+    setAuthError('');
+    setAuthNotice('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setAuthNotice('Te enviamos un correo para crear una nueva contraseña. Revisa también la carpeta de spam.');
+    } catch (error: any) {
+      setAuthError(getAuthErrorMessage(error.code));
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!user) return;
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      await sendEmailVerification(user);
+      setAuthNotice('Correo de verificación enviado nuevamente.');
+    } catch (error: any) {
+      setAuthError(getAuthErrorMessage(error.code));
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    if (!user) return;
+    setIsAuthLoading(true);
+    await reload(user);
+    setIsAuthLoading(false);
+    if (auth.currentUser?.emailVerified) window.location.reload();
+    else setAuthError('El correo todavía no aparece verificado. Abre el enlace recibido y vuelve a intentarlo.');
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user || isDeletingAccount) return;
+    const confirmed = window.confirm('Esta acción eliminará tu cuenta y todos los datos del taller de forma permanente. ¿Deseas continuar?');
+    if (!confirmed) return;
+    const finalConfirmation = window.prompt('Para confirmar, escribe ELIMINAR MI CUENTA');
+    if (finalConfirmation !== 'ELIMINAR MI CUENTA') return;
+    setIsDeletingAccount(true);
+    try {
+      await deleteAllAccountData(user.uid);
+      await deleteUser(user);
+      ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings', 'taller_owner_uid', 'service_draft']
+        .forEach((key) => localStorage.removeItem(key));
+      window.location.reload();
+    } catch (error: any) {
+      setAuthError(getAuthErrorMessage(error.code));
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -633,6 +747,7 @@ const Settings: React.FC<SettingsProps> = ({
           {/* Tarjeta de Autenticación */}
           <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
             {user ? (
+              <>
                <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-700">
                  {user.photoURL ? (
                    <img src={user.photoURL} alt={user.email || 'User'} className="w-12 h-12 rounded-full border-2 border-blue-500/50" />
@@ -645,10 +760,11 @@ const Settings: React.FC<SettingsProps> = ({
                     <p className="text-white font-bold truncate">{user.displayName || 'Usuario Activo'}</p>
                     <p className="text-slate-400 text-xs truncate italic">{user.email}</p>
                     <p className={`text-xs mt-1 ${syncStatus === 'error' ? 'text-red-400' : syncStatus === 'synced' ? 'text-green-400' : 'text-amber-400'}`}>
-                      {syncStatus === 'synced' && 'Datos sincronizados en la nube'}
-                      {syncStatus === 'syncing' && 'Sincronizando cambios...'}
-                      {syncStatus === 'error' && 'Sin conexión con la nube; se conserva copia local'}
-                      {syncStatus === 'local' && 'Datos guardados solo en este dispositivo'}
+                      {!user.emailVerified && 'Correo pendiente de verificación'}
+                      {user.emailVerified && syncStatus === 'synced' && 'Datos sincronizados en la nube'}
+                      {user.emailVerified && syncStatus === 'syncing' && 'Sincronizando cambios...'}
+                      {user.emailVerified && syncStatus === 'error' && 'Sin conexión con la nube; se conserva copia local'}
+                      {user.emailVerified && syncStatus === 'local' && 'Datos guardados solo en este dispositivo'}
                     </p>
                  </div>
                  <div className="flex gap-2">
@@ -672,6 +788,19 @@ const Settings: React.FC<SettingsProps> = ({
                    </button>
                  </div>
                </div>
+               {!user.emailVerified && (
+                 <div className="w-full mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                   <p className="text-sm font-bold text-amber-200">Verifica tu correo para activar la prueba</p>
+                   <p className="text-xs text-amber-100/70 mt-1">Abre el enlace que enviamos a {user.email}. Después vuelve aquí y comprueba la verificación.</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                     <button onClick={handleResendVerification} disabled={isAuthLoading} className="py-2 rounded-lg border border-amber-500/30 text-amber-100 text-sm font-bold">Reenviar correo</button>
+                     <button onClick={handleCheckVerification} disabled={isAuthLoading} className="py-2 rounded-lg bg-amber-500 text-slate-950 text-sm font-bold">Ya verifiqué</button>
+                   </div>
+                 </div>
+               )}
+               {authNotice && <p className="w-full mt-3 text-emerald-400 text-xs">{authNotice}</p>}
+               {authError && <p className="w-full mt-3 text-red-400 text-xs">{authError}</p>}
+              </>
             ) : (
                 <div className="space-y-6">
                     <button 
@@ -716,6 +845,7 @@ const Settings: React.FC<SettingsProps> = ({
                             />
                         </div>
                         {authError && <p className="text-red-400 text-xs px-1">{authError}</p>}
+                        {authNotice && <p className="text-emerald-400 text-xs px-1">{authNotice}</p>}
                         <button 
                           type="submit" 
                           disabled={isAuthLoading}
@@ -738,9 +868,53 @@ const Settings: React.FC<SettingsProps> = ({
                     >
                         {isRegistering ? '¿Ya tienes cuenta? Ingresa' : '¿No tienes cuenta? Regístrate'}
                     </button>
+                    {!isRegistering && (
+                      <button type="button" onClick={handlePasswordReset} disabled={isAuthLoading} className="w-full text-sm text-blue-400 hover:text-blue-300 disabled:opacity-50">
+                        ¿Olvidaste tu contraseña? Recuperarla
+                      </button>
+                    )}
                 </div>
             )}
           </div>
+
+          {user?.emailVerified && account && (
+            <div className="bg-slate-800 p-6 rounded-2xl border border-blue-500/30 shadow-lg">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-blue-400 font-bold">Mi plan</p>
+                  <h3 className="text-xl font-bold text-white mt-1">{account.plan === 'founder' ? 'Plan Fundador' : 'Prueba gratuita'}</h3>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Estado: {getEffectiveAccountStatus(account) === 'expired' ? 'Vencido · modo lectura' : getEffectiveAccountStatus(account) === 'active' ? 'Activo' : 'En prueba'}
+                  </p>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${canWrite ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-300'}`}>
+                  {canWrite ? 'Habilitado' : 'Renovación pendiente'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5 text-sm">
+                <div className="bg-slate-900/60 rounded-xl p-3">
+                  <p className="text-slate-500 text-xs">Fecha de inicio</p>
+                  <p className="text-white mt-1">{account.trialStartedAt ? new Date(account.trialStartedAt).toLocaleDateString('es-CL') : 'Preparando cuenta'}</p>
+                </div>
+                <div className="bg-slate-900/60 rounded-xl p-3">
+                  <p className="text-slate-500 text-xs">Fecha de vencimiento</p>
+                  <p className="text-white mt-1">{(account.plan === 'founder' ? account.paidThrough : account.trialEndsAt) ? new Date((account.plan === 'founder' ? account.paidThrough : account.trialEndsAt)!).toLocaleDateString('es-CL') : 'Sin vencimiento registrado'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                <button onClick={() => window.alert('El WhatsApp de soporte se incorporará antes de abrir el piloto comercial.')} className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold">{canWrite ? 'Contactar soporte' : 'Renovar Plan Fundador'}</button>
+                <button onClick={() => setActiveSection('data')} className="py-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 font-bold">Respaldar mis datos</button>
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => setActiveSection('legal')} className="group bg-slate-800 hover:bg-slate-750 p-6 rounded-2xl border border-slate-700 hover:border-emerald-500/50 transition-all shadow-lg flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400"><Lock size={24} /></div>
+              <div className="text-left"><h3 className="text-lg font-bold text-white">Privacidad y condiciones</h3><p className="text-sm text-slate-400">Consulta cómo protegemos y utilizamos los datos.</p></div>
+            </div>
+            <ChevronRight className="text-slate-500" />
+          </button>
 
           {/* Tarjeta 1: Información */}
           <button 
@@ -1128,7 +1302,7 @@ const Settings: React.FC<SettingsProps> = ({
                   type="button"
                   disabled={resetInputWord !== 'BORRAR'}
                   onClick={() => {
-                    // Eliminar solo los datos propios de TallerManager.
+                    // Eliminar solo los datos propios de Gestión Taller.
                     ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings', 'service_draft']
                       .forEach(key => localStorage.removeItem(key));
                     
@@ -1157,6 +1331,29 @@ const Settings: React.FC<SettingsProps> = ({
               </div>
             </div>
           )}
+        </div>
+
+        {user && (
+          <div className="p-5 bg-slate-900 border border-red-500/35 rounded-2xl">
+            <h3 className="text-red-400 font-extrabold text-sm flex items-center gap-2"><Trash2 size={16} /> Eliminar mi cuenta</h3>
+            <p className="text-slate-400 text-xs mt-2 leading-relaxed">Elimina la cuenta, los servicios, gastos, cotizaciones, actividad y configuración asociados. Descarga un respaldo antes de continuar.</p>
+            <button type="button" onClick={handleDeleteAccount} disabled={isDeletingAccount} className="w-full mt-4 py-3 rounded-xl border border-red-500/40 text-red-300 hover:bg-red-500/10 font-bold disabled:opacity-50">
+              {isDeletingAccount ? 'Eliminando cuenta…' : 'Eliminar cuenta y todos mis datos'}
+            </button>
+            {authError && <p className="text-red-400 text-xs mt-3">{authError}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (activeSection === 'legal') {
+    return (
+      <div className="space-y-6 pb-20 animate-fade-in">
+        <button onClick={() => setActiveSection('menu')} className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 group"><ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform"/> Volver</button>
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 shadow-lg space-y-6">
+          <section><h2 className="text-xl font-bold text-white mb-3">Política de privacidad</h2><div className="space-y-3 text-sm text-slate-300 leading-relaxed"><p>Gestión Taller almacena los datos de la cuenta, configuración del taller, clientes, vehículos, servicios, cotizaciones, gastos y pagos que el usuario registra. Estos datos se utilizan para entregar el servicio, sincronizar la información y prestar soporte.</p><p>Cada cuenta puede acceder únicamente a la información de su propio taller. El usuario puede descargar un respaldo y eliminar su cuenta y datos desde Configuración. Gestión Taller no vende la información registrada.</p><p>El taller es responsable de contar con autorización para registrar información de sus clientes. Las fotografías en la nube se mantienen desactivadas durante esta etapa.</p></div></section>
+          <section className="border-t border-slate-700 pt-6"><h2 className="text-xl font-bold text-white mb-3">Términos del servicio</h2><div className="space-y-3 text-sm text-slate-300 leading-relaxed"><p>La prueba gratuita general dura 15 días. Los primeros 10 talleres colaboradores podrán recibir 30 días a cambio de utilizar la aplicación y entregar comentarios reales.</p><p>Al finalizar la prueba, la cuenta pasa a modo lectura y conserva sus datos. El Plan Fundador tiene un precio inicial de $10.000 CLP mensuales y se activa manualmente después de confirmar el pago.</p><p>Gestión Taller es una herramienta de administración y no sustituye sistemas contables, tributarios ni documentos legales obligatorios. El responsable comercial y el canal de contacto definitivo se incorporarán antes del lanzamiento.</p></div></section>
         </div>
       </div>
     );

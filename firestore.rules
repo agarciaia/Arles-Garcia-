@@ -6,36 +6,100 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
     }
 
-    // Cada cuenta solo puede acceder a la información de su propio taller.
+    function isOwner(uid) {
+      return verified() && request.auth.uid == uid;
+    }
+
+    function account(uid) {
+      return get(/databases/$(database)/documents/accounts/$(uid)).data;
+    }
+
+    function accountCanWrite(uid) {
+      return isOwner(uid) && (
+        (account(uid).status == 'trialing' && account(uid).trialEndsAt > request.time) ||
+        (account(uid).status == 'active'
+          && ('paidThrough' in account(uid))
+          && account(uid).paidThrough > request.time)
+      );
+    }
+
+    match /accounts/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.plan == 'trial'
+        && request.resource.data.status == 'trialing'
+        && request.resource.data.onboardingCompleted == false
+        && request.resource.data.trialEndsAt > request.time
+        && request.resource.data.trialEndsAt <= request.time + duration.value(16, 'd');
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lastSeenAt',
+          'onboardingCompleted',
+          'termsAcceptedAt',
+          'privacyAcceptedAt',
+          'firstServiceAt'
+        ]);
+      allow delete: if isOwner(uid);
+    }
+
+    match /workshops/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if accountCanWrite(uid) && request.resource.data.ownerUid == uid;
+      allow update: if accountCanWrite(uid)
+        && resource.data.ownerUid == uid
+        && request.resource.data.ownerUid == uid;
+      allow delete: if isOwner(uid);
+
+      match /services/{serviceId} {
+        allow read: if isOwner(uid);
+        allow create, update: if accountCanWrite(uid)
+          && request.resource.data.id == serviceId;
+        allow delete: if isOwner(uid);
+      }
+
+      match /costs/{costId} {
+        allow read: if isOwner(uid);
+        allow create, update: if accountCanWrite(uid)
+          && request.resource.data.id == costId;
+        allow delete: if isOwner(uid);
+      }
+
+      match /quotes/{quoteId} {
+        allow read: if isOwner(uid);
+        allow create, update: if accountCanWrite(uid)
+          && request.resource.data.id == quoteId;
+        allow delete: if isOwner(uid);
+      }
+
+      match /activity/{date} {
+        allow read: if isOwner(uid);
+        allow create, update: if accountCanWrite(uid)
+          && request.resource.data.date == date;
+        allow delete: if isOwner(uid);
+      }
+    }
+
+    // Ruta anterior conservada temporalmente solo para migrar datos existentes.
+    // Se cerrará después de confirmar que todos los talleres fueron migrados.
     match /users/{uid} {
       allow read, create, update: if isOwner(uid);
-      allow delete: if false;
+      allow delete: if isOwner(uid);
 
       match /appData/{document=**} {
         allow read, write: if isOwner(uid);
       }
     }
 
-    // Se cierran las colecciones antiguas que compartían datos entre usuarios.
-    match /services/{document=**} {
-      allow read, write: if false;
-    }
-    match /costs/{document=**} {
-      allow read, write: if false;
-    }
-    match /quotes/{document=**} {
-      allow read, write: if false;
-    }
-    match /settings/{document=**} {
-      allow read, write: if false;
-    }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /services/{document=**} { allow read, write: if false; }
+    match /costs/{document=**} { allow read, write: if false; }
+    match /quotes/{document=**} { allow read, write: if false; }
+    match /settings/{document=**} { allow read, write: if false; }
+    match /{document=**} { allow read, write: if false; }
   }
 }
