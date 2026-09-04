@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { User, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebase';
 import { Building2, Palette, MessageSquare, LayoutTemplate, RotateCcw, Maximize2, X, Check, ChevronRight, ArrowLeft, Smartphone, Database, Download, Upload, AlertTriangle, Image as ImageIcon, Trash2, LogIn, LogOut, Mail, Lock, UserPlus, HardDrive } from 'lucide-react';
+import { AppSettings, Cost, Quote, QuoteItem, Service, ServiceExpense, ServicePayment } from '../types';
+import { createId } from '../services/id';
 
 interface SettingsProps {
   user: User | null;
@@ -13,6 +15,7 @@ interface SettingsProps {
   setCosts: React.Dispatch<React.SetStateAction<Cost[]>>;
   quotes: Quote[];
   setQuotes: React.Dispatch<React.SetStateAction<Quote[]>>;
+  syncStatus: 'local' | 'syncing' | 'synced' | 'error';
 }
 
 type SettingsSection = 'menu' | 'company' | 'templates' | 'theme' | 'data';
@@ -22,7 +25,8 @@ const Settings: React.FC<SettingsProps> = ({
   settings, setSettings, 
   services, setServices, 
   costs, setCosts, 
-  quotes, setQuotes 
+  quotes, setQuotes,
+  syncStatus,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('menu');
   const [editingTemplate, setEditingTemplate] = useState<'service' | 'quote' | null>(null);
@@ -108,16 +112,32 @@ const Settings: React.FC<SettingsProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleImportFullBackupJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 20 * 1024 * 1024) {
+      alert('El respaldo supera el límite de seguridad de 20 MB.');
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
+        const validSettings = data.settings
+          && typeof data.settings === 'object'
+          && typeof data.settings.companyName === 'string'
+          && typeof data.settings.whatsappServiceTemplate === 'string'
+          && typeof data.settings.whatsappQuoteTemplate === 'string';
+
+        if (!Array.isArray(data.services) || !Array.isArray(data.costs) || !Array.isArray(data.quotes) || !validSettings) {
+          throw new Error('Estructura de respaldo inválida');
+        }
+
         let importedCount = 0;
         
         if (data.services && Array.isArray(data.services)) {
@@ -132,7 +152,7 @@ const Settings: React.FC<SettingsProps> = ({
           setQuotes(data.quotes);
           importedCount++;
         }
-        if (data.settings && typeof data.settings === 'object') {
+        if (validSettings) {
           setSettings(data.settings);
           importedCount++;
         }
@@ -241,6 +261,7 @@ const Settings: React.FC<SettingsProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const readCSV = (file: File): Promise<string[][]> => {
@@ -362,7 +383,7 @@ const Settings: React.FC<SettingsProps> = ({
                     const match = s.match(/(.+?) \(\$(\d+)\)/);
                     if (match) {
                         return { 
-                            id: Math.random().toString(36).substr(2, 9), 
+                            id: createId(), 
                             description: match[1], 
                             amount: parseInt(match[2]) 
                         };
@@ -388,7 +409,7 @@ const Settings: React.FC<SettingsProps> = ({
             
             if (advance > 0) {
                 payments.push({
-                    id: Math.random().toString(36).substr(2, 9),
+                    id: createId(),
                     amount: advance,
                     date: advanceDate,
                     type: 'advance',
@@ -403,7 +424,7 @@ const Settings: React.FC<SettingsProps> = ({
             
             if (status === 'completed' && total > advance) {
                 payments.push({
-                    id: Math.random().toString(36).substr(2, 9),
+                    id: createId(),
                     amount: total - advance,
                     date: endDate,
                     type: 'final',
@@ -417,7 +438,7 @@ const Settings: React.FC<SettingsProps> = ({
             const model = vehicleParts.slice(1).join(' ') || '';
 
             return {
-                id: row[0] || Math.random().toString(36).substr(2, 9),
+                id: row[0] || createId(),
                 status: status,
                 entryDate: parseImportDate(row[2]),
                 clientName: row[4] || 'Sin Nombre',
@@ -466,7 +487,7 @@ const Settings: React.FC<SettingsProps> = ({
         const newCosts: Cost[] = dataRows.map(row => {
             if (row.length < 5) return null;
             return {
-                id: row[0] || Math.random().toString(36).substr(2, 9),
+                id: row[0] || createId(),
                 date: parseImportDate(row[1]),
                 description: row[2] || '',
                 category: categoryMap[row[3]] || 'other',
@@ -504,7 +525,7 @@ const Settings: React.FC<SettingsProps> = ({
                     const match = s.match(/\((\d+)\) (.+?) \$(\d+)/);
                     if (match) {
                         return {
-                            id: Math.random().toString(36).substr(2, 9),
+                            id: createId(),
                             quantity: parseInt(match[1]),
                             description: match[2],
                             unitPrice: parseInt(match[3])
@@ -517,7 +538,7 @@ const Settings: React.FC<SettingsProps> = ({
             const items = parseQuoteItems(row[5]);
 
             return {
-                id: row[0] || Math.random().toString(36).substr(2, 9),
+                id: row[0] || createId(),
                 date: parseImportDate(row[1]),
                 clientName: row[2] || '',
                 phone: row[3] || '',
@@ -623,6 +644,12 @@ const Settings: React.FC<SettingsProps> = ({
                  <div className="flex-1 text-center sm:text-left overflow-hidden">
                     <p className="text-white font-bold truncate">{user.displayName || 'Usuario Activo'}</p>
                     <p className="text-slate-400 text-xs truncate italic">{user.email}</p>
+                    <p className={`text-xs mt-1 ${syncStatus === 'error' ? 'text-red-400' : syncStatus === 'synced' ? 'text-green-400' : 'text-amber-400'}`}>
+                      {syncStatus === 'synced' && 'Datos sincronizados en la nube'}
+                      {syncStatus === 'syncing' && 'Sincronizando cambios...'}
+                      {syncStatus === 'error' && 'Sin conexión con la nube; se conserva copia local'}
+                      {syncStatus === 'local' && 'Datos guardados solo en este dispositivo'}
+                    </p>
                  </div>
                  <div className="flex gap-2">
                    <button 
@@ -812,20 +839,20 @@ const Settings: React.FC<SettingsProps> = ({
             <HardDrive className="text-blue-400 shrink-0" size={22} /> Telemetría de Almacenamiento
           </h2>
           <p className="text-slate-400 text-sm mb-5">
-            Tus datos se guardan de forma <strong>100% local, privada y segura</strong> en tu navegador. Consulta aquí el peso detallado de tu información.
+            La aplicación conserva una copia local para trabajar sin conexión. Cuando inicias sesión, también sincroniza la información con tu cuenta en la nube.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
               <span className="text-xs text-slate-500 uppercase font-bold block">Espacio Ocupado</span>
               <span className="text-lg font-extrabold text-blue-405 font-mono">{usedMB.toFixed(3)} MB</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">De un máximo de {limitMB.toFixed(1)} MB</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">Límite local estimado: {limitMB.toFixed(1)} MB</span>
             </div>
             
             <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
               <span className="text-xs text-slate-500 uppercase font-bold block">Espacio Disponible</span>
               <span className="text-lg font-extrabold text-emerald-400 font-mono">{freeMB.toFixed(3)} MB</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Espacio libre garantizado</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">Espacio local estimado</span>
             </div>
 
             <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
@@ -838,7 +865,7 @@ const Settings: React.FC<SettingsProps> = ({
           {/* Gráfico de Barra de Progreso */}
           <div className="mb-6">
             <div className="flex justify-between text-xs text-slate-400 mb-1.5 font-medium">
-              <span>Capacidad de Almacenamiento Local (Límite: 5 Megabytes)</span>
+              <span>Capacidad local estimada (puede variar por navegador)</span>
               <span>{stats.percent.toFixed(1)}% Usado</span>
             </div>
             <div className="w-full bg-slate-900 h-3.5 rounded-full overflow-hidden border border-slate-750 p-0.5">
@@ -913,7 +940,7 @@ const Settings: React.FC<SettingsProps> = ({
             >
               <Download size={24} className="group-hover:translate-y-0.5 transition-transform" />
               <span>Descargar Respaldo Completo (.JSON)</span>
-              <span className="text-[10px] text-emerald-500/80 font-normal">Súper seguro - Un solo archivo para todo</span>
+              <span className="text-[10px] text-emerald-500/80 font-normal">Un solo archivo; guárdalo en un lugar protegido</span>
             </button>
             
             <button 
@@ -1101,8 +1128,9 @@ const Settings: React.FC<SettingsProps> = ({
                   type="button"
                   disabled={resetInputWord !== 'BORRAR'}
                   onClick={() => {
-                    // Limpiar localStorage completo de forma limpia
-                    localStorage.clear();
+                    // Eliminar solo los datos propios de TallerManager.
+                    ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings', 'service_draft']
+                      .forEach(key => localStorage.removeItem(key));
                     
                     // Resetear de inmediato los estados cargados en esta sesión
                     setServices([]);
@@ -1113,6 +1141,7 @@ const Settings: React.FC<SettingsProps> = ({
                       companyName: '',
                       companyAddress: '',
                       companyPhone: '',
+                      mechanicName: '',
                       logoUrl: undefined,
                       whatsappServiceTemplate: '🛠️\n\nTALLER: {taller}\n\nHola {cliente},\nTu vehículo 🚗: {marca_modelo}\n🪪 Patente: {patente}\n📅 Fecha: {fecha}\n📌 Estado actual: *{estado}*\n\n🔧 Detalle del Servicio\n{detalle}\n\n💰 Resumen de Pago\nTotal: ${total}\nAbono: ${abono}\nPendiente: ${saldo}\n\n📲 Ante cualquier duda o consulta, no dudes en contactarnos.\nGracias por confiar en {taller}',
                       whatsappQuoteTemplate: '*COTIZACIÓN #{id}*\n🔧 {taller}\n\nHola {cliente}, aquí tienes el presupuesto para tu {vehiculo}.\n\n📋 *Detalle:*\n{detalle}\n\n💰 *TOTAL: ${total}*\n\n_Válido por {dias} días._'
@@ -1211,6 +1240,10 @@ const Settings: React.FC<SettingsProps> = ({
             <div>
               <label className="block text-sm font-bold text-slate-300 mb-2">Teléfono</label>
               <input type="text" value={settings.companyPhone} onChange={(e) => handleChange('companyPhone', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none" placeholder="+56 9 ..." />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">Mecánico responsable predeterminado</label>
+              <input type="text" value={settings.mechanicName || ''} onChange={(e) => handleChange('mechanicName', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none" placeholder="Nombre que aparecerá en los PDF" />
             </div>
           </div>
         </div>

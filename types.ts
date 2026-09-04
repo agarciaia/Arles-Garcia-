@@ -92,6 +92,7 @@ export interface AppSettings {
   companyName: string;
   companyAddress: string;
   companyPhone: string;
+  mechanicName: string;
   logoUrl?: string; // Base64 string of the logo
   whatsappServiceTemplate: string;
   whatsappQuoteTemplate: string;

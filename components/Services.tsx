@@ -1,5 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceExpense, AppSettings, ServicePayment } from '../types';
+import {
+  calculateLaborDiscount,
+  calculateServiceBalance,
+  calculateServicePaid,
+  calculateServiceRawLabor,
+  calculateServiceTotal,
+} from '../services/financials';
+import { auth } from '../firebase';
+import { deleteServicePhoto, uploadServicePhoto } from '../services/photoStorage';
+import { createId } from '../services/id';
 import { Plus, Search, Calendar, User, Car, FileText, DollarSign, X, Phone, MessageCircle, ChevronDown, ChevronUp, RotateCcw, Hammer, Box, Trash2, Edit, Ban, Filter, CheckCircle, Clock, ArrowRight, Tag, LayoutGrid, Rows, Printer, RefreshCw, History, Download, UserCog, FilePenLine, Eraser, Camera, Image as ImageIcon, Share2, Percent } from 'lucide-react';
 
 declare var html2pdf: any;
@@ -16,8 +26,6 @@ const COMMON_BRANDS = [
   'Subaru', 'Chery', 'MG', 'BMW', 'Mercedes-Benz', 'Audi', 
   'Jeep', 'Ram', 'Citroën', 'Renault', 'Fiat', 'Volvo'
 ];
-
-const MECHANIC_NAME = "Freddy Rincón";
 
 export default function Services({ services, setServices, settings }: ServicesProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -210,11 +218,25 @@ export default function Services({ services, setServices, settings }: ServicesPr
         reader.onloadend = async () => {
             const rawBase64 = reader.result as string;
             const compressedBase64 = await compressImage(rawBase64);
+            const currentUser = auth.currentUser;
+            if (!currentUser) {
+              alert('Debes iniciar sesión para guardar fotografías de forma segura.');
+              return;
+            }
+            const compressedBlob = await fetch(compressedBase64).then(response => response.blob());
+            let photoUrl: string;
+            try {
+              photoUrl = await uploadServicePhoto(currentUser.uid, photoServiceId, compressedBlob);
+            } catch (error) {
+              console.error('Error uploading service photo', error);
+              alert('No fue posible guardar la fotografía en la nube. Revisa tu conexión e inténtalo nuevamente.');
+              return;
+            }
             
             setServices(prev => prev.map(s => {
                 if (s.id === photoServiceId) {
                     const currentPhotos = s.photos || [];
-                    const updated = { ...s, photos: [...currentPhotos, compressedBase64] };
+                    const updated = { ...s, photos: [...currentPhotos, photoUrl] };
                     if (viewingPhotoService && viewingPhotoService.id === s.id) {
                         setViewingPhotoService(updated);
                     }
@@ -237,7 +259,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
     setServices(prev => prev.map(s => {
         if (s.id === serviceId && s.photos) {
             const newPhotos = [...s.photos];
-            newPhotos.splice(photoIndex, 1);
+            const [removedPhoto] = newPhotos.splice(photoIndex, 1);
+            if (removedPhoto) deleteServicePhoto(removedPhoto).catch(error => console.error('Error deleting photo', error));
             const updated = { ...s, photos: newPhotos };
             if (viewingPhotoService && viewingPhotoService.id === s.id) {
                 setViewingPhotoService(updated);
@@ -285,31 +308,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
   };
 
   // Logic to calculate raw labor total without discount
-  const calculateRawLabor = (service: Partial<Service>) => {
-    if (!service.laborItems || service.laborItems.length === 0) return service.price || 0;
-    return service.laborItems.reduce((acc, curr) => acc + curr.amount, 0);
-  };
-
-  // Logic to calculate final total considering discount
-  const calculateTotal = (service: Service | Partial<Service>) => {
-    const rawLabor = calculateRawLabor(service);
-    const discount = service.laborDiscount || 0;
-    const isFixed = service.laborDiscountType === 'fixed';
-    
-    let discountAmount = 0;
-    if (isFixed) {
-        discountAmount = discount;
-    } else {
-        discountAmount = Math.round(rawLabor * (discount / 100));
-    }
-    
-    // Ensure we don't discount more than the raw labor
-    discountAmount = Math.min(discountAmount, rawLabor);
-    const finalLabor = rawLabor - discountAmount;
-    
-    const expensesTotal = (service.expenses || []).reduce((acc, curr) => acc + curr.amount, 0);
-    return finalLabor + expensesTotal;
-  };
+  const calculateRawLabor = calculateServiceRawLabor;
+  const calculateTotal = calculateServiceTotal;
 
   const handleSaveService = (e: React.FormEvent) => {
     e.preventDefault();
@@ -327,7 +327,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
     if (advanceAmount > 0) {
       currentPayments.push({
-        id: Math.random().toString(36).substr(2, 9),
+        id: createId(),
         amount: advanceAmount,
         date: entryDate,
         type: 'advance',
@@ -336,7 +336,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
     }
 
     const serviceData: Service = {
-      id: newService.id || Math.random().toString(36).substr(2, 9),
+      id: newService.id || createId(),
       clientName: newService.clientName || '',
       phone: newService.phone || '',
       plate: newService.plate || '',
@@ -373,7 +373,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
     const amount = parseInt(tempLabor.amount.replace(/\./g, '').replace(/\D/g, ''), 10) || 0;
     
     const newItem: ServiceExpense = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: createId(),
       description: tempLabor.description,
       amount: amount
     };
@@ -397,7 +397,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
     const amount = parseInt(tempExpense.amount.replace(/\./g, '').replace(/\D/g, ''), 10) || 0;
     
     const newItem: ServiceExpense = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: createId(),
       description: tempExpense.description,
       amount: amount
     };
@@ -436,17 +436,11 @@ export default function Services({ services, setServices, settings }: ServicesPr
     if (!serviceToComplete) return;
 
     const total = calculateTotal(serviceToComplete);
-    const paid = (serviceToComplete.payments || [])
-        .filter(p => p.type === 'advance')
-        .reduce((acc, curr) => acc + curr.amount, 0);
-        
-    const legacyPaid = (!serviceToComplete.payments || serviceToComplete.payments.length === 0) ? (serviceToComplete.advance || 0) : 0;
-    
-    const finalPaid = paid > 0 ? paid : legacyPaid;
-    const remainder = total - finalPaid;
+    const finalPaid = calculateServicePaid(serviceToComplete);
+    const remainder = Math.max(0, total - finalPaid);
 
     const newPayment: ServicePayment = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: createId(),
         amount: remainder,
         date: completionDate,
         type: 'final',
@@ -679,7 +673,8 @@ export default function Services({ services, setServices, settings }: ServicesPr
     
     const labor = service.laborItems || [];
     const expenses = service.expenses || [];
-    const remaining = calculateTotal(service) - (service.advance || 0);
+    const paid = calculateServicePaid(service);
+    const remaining = calculateServiceBalance(service);
 
     let detailStr = '';
     const legacyLaborAmount = service.price;
@@ -751,7 +746,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
     // Replace {total} with either the single amount or the breakdown
     msg = msg.replace(/{total}/g, totalString);
     
-    msg = msg.replace(/{abono}/g, (service.advance || 0).toLocaleString('es-CL'));
+    msg = msg.replace(/{abono}/g, paid.toLocaleString('es-CL'));
     msg = msg.replace(/{saldo}/g, remaining.toLocaleString('es-CL'));
     msg = msg.replace(/{detalle}/g, detailStr);
 
@@ -891,16 +886,10 @@ export default function Services({ services, setServices, settings }: ServicesPr
             displayedServices.map((service) => {
               const isExpanded = expandedServiceId === service.id;
               const total = calculateTotal(service);
-              const remaining = total - (service.advance || 0);
+              const remaining = calculateServiceBalance(service);
               const rawLabor = calculateRawLabor(service);
               
-              let discountAmount = 0;
-              if (service.laborDiscountType === 'fixed') {
-                  discountAmount = service.laborDiscount || 0;
-              } else {
-                  discountAmount = Math.round(rawLabor * ((service.laborDiscount || 0) / 100));
-              }
-              discountAmount = Math.min(discountAmount, rawLabor);
+              const discountAmount = calculateLaborDiscount(rawLabor, service.laborDiscount, service.laborDiscountType);
 
               return (
                 <div key={service.id} onClick={() => toggleExpandCard(service.id)} className={`bg-slate-800 rounded-xl border border-slate-700 hover:border-blue-500/50 hover:bg-slate-800/80 transition-all duration-300 group relative flex flex-col cursor-pointer overflow-hidden z-10 shadow-lg shadow-slate-900/20 ${isExpanded ? 'row-span-2' : ''}`}>
@@ -1089,11 +1078,11 @@ export default function Services({ services, setServices, settings }: ServicesPr
                          </div>
                          <div className="flex justify-between text-sm">
                             <span className="text-slate-400">Abonado (Pagado)</span>
-                            <span className="text-green-400 font-medium">-${(serviceToComplete.advance || 0).toLocaleString('es-CL')}</span>
+                            <span className="text-green-400 font-medium">-${calculateServicePaid(serviceToComplete).toLocaleString('es-CL')}</span>
                          </div>
                          <div className="border-t border-slate-700 my-1 pt-1 flex justify-between">
                             <span className="text-slate-300 font-bold">Saldo Final</span>
-                            <span className="text-white font-bold text-lg">${(calculateTotal(serviceToComplete) - (serviceToComplete.advance || 0)).toLocaleString('es-CL')}</span>
+                            <span className="text-white font-bold text-lg">${calculateServiceBalance(serviceToComplete).toLocaleString('es-CL')}</span>
                          </div>
                       </div>
                    </div>
@@ -1309,16 +1298,16 @@ export default function Services({ services, setServices, settings }: ServicesPr
                                          <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(subtotal)}</span></div>
                                          <div className="flex justify-between py-2 text-sm text-slate-600"><span>Descuento ({discountText})</span><span>-${formatCLP(discountAmount)}</span></div>
                                          <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">Total a Pagar</span><span className="font-bold text-xl">${formatCLP(finalTotal)}</span></div>
-                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-t border-slate-200 mt-1"><span>Abono / Adelanto</span><span>-${formatCLP(printService.advance)}</span></div>)}
-                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-red-600 font-bold"><span>Pendiente</span><span>${formatCLP(finalTotal - (printService.advance || 0))}</span></div>)}
+                                         {calculateServicePaid(printService) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-t border-slate-200 mt-1"><span>Pagos registrados</span><span>-${formatCLP(calculateServicePaid(printService))}</span></div>)}
+                                         {calculateServicePaid(printService) > 0 && (<div className="flex justify-between py-2 text-sm text-red-600 font-bold"><span>Pendiente</span><span>${formatCLP(calculateServiceBalance(printService))}</span></div>)}
                                      </>
                                  );
                              } else {
                                  return (
                                      <>
                                          <div className="flex justify-between py-2 text-sm text-slate-600"><span>Subtotal</span><span>${formatCLP(subtotal)}</span></div>
-                                         {(printService.advance || 0) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-b border-slate-200"><span>Abono / Adelanto</span><span>-${formatCLP(printService.advance)}</span></div>)}
-                                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">TOTAL A PAGAR</span><span className="font-bold text-xl">${formatCLP(finalTotal - (printService.advance || 0))}</span></div>
+                                         {calculateServicePaid(printService) > 0 && (<div className="flex justify-between py-2 text-sm text-green-600 font-medium border-b border-slate-200"><span>Pagos registrados</span><span>-${formatCLP(calculateServicePaid(printService))}</span></div>)}
+                                         <div className="flex justify-between py-3 border-t-2 border-slate-800 text-slate-900 mt-2"><span className="font-bold text-xl">TOTAL A PAGAR</span><span className="font-bold text-xl">${formatCLP(calculateServiceBalance(printService))}</span></div>
                                      </>
                                  );
                              }
@@ -1327,7 +1316,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
                    </div>
                    <div className="mt-auto pt-10 break-inside-avoid">
                       <div className="mb-8 text-right pr-4">
-                         <p className="text-sm font-bold text-slate-800 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {MECHANIC_NAME}</p>
+                         <p className="text-sm font-bold text-slate-800 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {settings.mechanicName || 'Sin asignar'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Taller</p></div><div className="text-center"><div className="border-b border-slate-400 mb-2 h-10"></div><p className="text-sm font-bold text-slate-700">Firma Cliente</p></div></div>
                       <div className="border-t border-slate-200 pt-4 flex justify-between text-[10px] text-slate-400"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>

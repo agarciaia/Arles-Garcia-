@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Service, Cost, ServicePayment } from '../types';
+import { calculateServiceTotal } from '../services/financials';
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, Users, CheckCircle, ArrowLeft, Calendar, Activity, Wallet, FileText, Trophy, Car, Filter, Clock, DollarSign, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 
@@ -42,13 +43,6 @@ const Dashboard: React.FC<DashboardProps> = ({ services, setServices, costs, set
        return `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
     return new Date(dateStr).toLocaleDateString('es-CL');
-  };
-
-  const calculateServiceTotal = (s: Service) => {
-    const labor = (s.laborItems || []).reduce((acc, curr) => acc + curr.amount, 0);
-    const expenses = (s.expenses || []).reduce((acc, curr) => acc + curr.amount, 0);
-    const baseLabor = labor === 0 && s.price > 0 ? s.price : labor; 
-    return baseLabor + expenses;
   };
 
   // --- Generate Financial Events (Income) ---

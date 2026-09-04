@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Quote, QuoteItem, AppSettings, Service, AppView } from '../types';
+import { calculateQuoteTotal } from '../services/financials';
+import { createId } from '../services/id';
 import { Plus, Search, FileText, Printer, MessageCircle, Trash2, X, DollarSign, Calendar, User, Car, Edit, ChevronRight, Hash, Download, Share2, Save, Hammer, Box, RotateCcw, ChevronDown, Wrench, CheckCircle, UserCog, ArrowRightCircle, Ban, Check, AlertTriangle, Percent } from 'lucide-react';
 
 declare var html2pdf: any;
@@ -19,8 +21,6 @@ const COMMON_BRANDS = [
   'Subaru', 'Chery', 'MG', 'BMW', 'Mercedes-Benz', 'Audi', 
   'Jeep', 'Ram', 'Citroën', 'Renault', 'Fiat', 'Volvo'
 ];
-
-const MECHANIC_NAME = "Freddy Rincón";
 
 const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, setServices, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -170,7 +170,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
     const price = parseInt(tempLabor.unitPrice.replace(/\./g, '').replace(/\D/g, ''), 10) || 0;
     
     const newItem: QuoteItem = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: createId(),
       description: tempLabor.description,
       quantity: tempLabor.quantity,
       unitPrice: price
@@ -190,7 +190,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
     const price = parseInt(tempExpense.unitPrice.replace(/\./g, '').replace(/\D/g, ''), 10) || 0;
     
     const newItem: QuoteItem = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: createId(),
       description: tempExpense.description,
       quantity: tempExpense.quantity,
       unitPrice: price
@@ -204,24 +204,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
     setFormData(prev => ({ ...prev, expenseItems: (prev.expenseItems || []).filter(i => i.id !== id) }));
   };
 
-  const calculateTotal = (quote: Partial<Quote>) => {
-    const rawLabor = (quote.laborItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
-    const discount = quote.laborDiscount || 0;
-    
-    let discountAmount = 0;
-    if (quote.laborDiscountType === 'fixed') {
-        discountAmount = discount;
-    } else {
-        discountAmount = Math.round(rawLabor * (discount / 100));
-    }
-    // Cap discount
-    discountAmount = Math.min(discountAmount, rawLabor);
-    
-    const finalLabor = rawLabor - discountAmount;
-
-    const expenses = (quote.expenseItems || []).reduce((acc, curr) => acc + (curr.quantity * curr.unitPrice), 0);
-    return finalLabor + expenses;
-  };
+  const calculateTotal = calculateQuoteTotal;
 
   const generateQuoteId = (): string => {
     const existingIds = quotes.map(q => parseInt(q.id)).filter(n => !isNaN(n));
@@ -299,20 +282,21 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
 
     // 2. MAPEAR ITEMS
     const laborItems = (quote.laborItems || []).map(item => ({
-        id: Math.random().toString(36).substr(2, 9),
+        id: createId(),
         description: item.quantity > 1 ? `(${item.quantity}) ${item.description}` : item.description,
         amount: item.unitPrice * item.quantity
     }));
 
-    const expenses = [...(quote.expenseItems || []), ...(quote.items || [])].map(item => ({
-        id: Math.random().toString(36).substr(2, 9),
+    const quoteExpenses = quote.expenseItems?.length ? quote.expenseItems : (quote.items || []);
+    const expenses = quoteExpenses.map(item => ({
+        id: createId(),
         description: item.quantity > 1 ? `(${item.quantity}) ${item.description}` : item.description,
         amount: item.unitPrice * item.quantity
     }));
 
     // 3. CREAR SERVICIO
     const newService: Service = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: createId(),
         clientName: quote.clientName,
         phone: quote.phone || '',
         plate: plate,
@@ -997,7 +981,7 @@ const Quotes: React.FC<QuotesProps> = ({ quotes, setQuotes, settings, services, 
                    
                    <div className="mt-auto pt-10 break-inside-avoid">
                       <div className="mb-12 text-right pr-4">
-                         <p className="text-sm font-bold text-slate-900 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {MECHANIC_NAME}</p>
+                         <p className="text-sm font-bold text-slate-900 uppercase flex items-center justify-end gap-2"><UserCog size={16}/> Mecánico Responsable: {settings.mechanicName || 'Sin asignar'}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-20 mb-10"><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Taller</p></div><div className="text-center"><div className="border-b-2 border-slate-800 mb-2 h-16"></div><p className="text-sm font-bold text-slate-900">Firma Cliente</p></div></div>
                       <div className="border-t-2 border-slate-200 pt-4 flex justify-between text-[10px] text-slate-500"><p>Gracias por su preferencia.</p><p>Generado por TallerManager</p></div>
