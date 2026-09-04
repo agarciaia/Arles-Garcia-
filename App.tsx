@@ -45,17 +45,9 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (currentUser?.email) {
-        // El rol nunca debe inferirse desde palabras contenidas en el correo.
-        // Hasta contar con roles administrados desde servidor, solo la cuenta propietaria es admin.
-        if (currentUser.email === 'ag.analisis247@gmail.com') {
-          setRole('admin');
-        } else {
-          setRole('alumno');
-        }
-      } else {
-        setRole('guest');
-      }
+      // Cada cuenta autenticada administra su propio taller. Las reglas de Firestore
+      // aíslan los datos por UID, por lo que una cuenta no puede acceder a otra.
+      setRole(currentUser ? 'admin' : 'guest');
     });
     return () => unsubscribe();
   }, []);
