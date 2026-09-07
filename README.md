@@ -21,7 +21,7 @@ Requisito: Node.js 20 o superior.
 
 - La sesión utiliza Firebase Authentication.
 - Los datos operativos se sincronizan con Firestore bajo el UID de cada cuenta y conservan una copia local para trabajo sin conexión.
-- La carga de fotografías nuevas está desactivada durante el piloto para mantener el proyecto en el plan sin costo.
+- Las fotografías se comprimen en el dispositivo y se guardan de forma privada en Firebase Storage bajo el UID de cada taller.
 - Las reglas incluidas en `firestore.rules` y `storage.rules` deben publicarse en el proyecto Firebase antes de poner la aplicación en producción.
 - Ninguna clave de Gemini debe incluirse en el navegador. Las funciones de IA deben llamar a un endpoint protegido del servidor bajo `/api/gemini/*`.
 

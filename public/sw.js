@@ -1,10 +1,15 @@
-const CACHE_NAME = 'gestion-taller-v4';
+const CACHE_NAME = 'gestion-taller-v3';
 const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/app_icon.png'];
+const OPTIONAL_ASSETS = [
+  'https://cdn.tailwindcss.com',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(CORE_ASSETS);
+    await Promise.allSettled(OPTIONAL_ASSETS.map((asset) => cache.add(asset)));
     await self.skipWaiting();
   })());
 });

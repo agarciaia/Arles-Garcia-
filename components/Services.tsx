@@ -26,8 +26,7 @@ const COMMON_BRANDS = [
   'Jeep', 'Ram', 'Citroën', 'Renault', 'Fiat', 'Volvo'
 ];
 
-// Se habilitará cuando Storage tenga una cuota controlada para producción.
-const PHOTO_UPLOADS_ENABLED = false;
+const PHOTO_UPLOADS_ENABLED = true;
 
 export default function Services({ services, setServices, settings }: ServicesProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -64,6 +63,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
 
   // --- PHOTO GALLERY STATE ---
   const [photoServiceId, setPhotoServiceId] = useState<string | null>(null); // To know which service is uploading
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false); // For History/Modal view
   const [viewingPhotoService, setViewingPhotoService] = useState<Service | null>(null);
   
@@ -190,7 +190,7 @@ export default function Services({ services, setServices, settings }: ServicesPr
   };
 
   const compressImage = (base64Str: string, maxWidth = 800): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.src = base64Str;
       img.onload = () => {
@@ -209,28 +209,45 @@ export default function Services({ services, setServices, settings }: ServicesPr
         ctx?.drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress to 70% quality JPEG
       };
+      img.onerror = () => reject(new Error('No se pudo procesar la imagen seleccionada.'));
     });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && photoServiceId) {
         const file = e.target.files[0];
+        if (!file.type.startsWith('image/')) {
+          alert('Selecciona una fotografía válida.');
+          e.target.value = '';
+          return;
+        }
+        setIsUploadingPhoto(true);
         const reader = new FileReader();
         
         reader.onloadend = async () => {
-            const rawBase64 = reader.result as string;
-            const compressedBase64 = await compressImage(rawBase64);
-            const currentUser = auth.currentUser;
-            if (!currentUser) {
-              alert('Debes iniciar sesión para guardar fotografías de forma segura.');
-              return;
-            }
-            const compressedBlob = await fetch(compressedBase64).then(response => response.blob());
-            let photoUrl: string;
             try {
-              photoUrl = await uploadServicePhoto(currentUser.uid, photoServiceId, compressedBlob);
+              const rawBase64 = reader.result as string;
+              const compressedBase64 = await compressImage(rawBase64);
+              const currentUser = auth.currentUser;
+              if (!currentUser) throw new Error('auth-required');
+              const compressedBlob = await fetch(compressedBase64).then(response => response.blob());
+              const photoUrl = await uploadServicePhoto(currentUser.uid, photoServiceId, compressedBlob);
+
+              setServices(prev => prev.map(s => {
+                  if (s.id === photoServiceId) {
+                      const currentPhotos = s.photos || [];
+                      const updated = { ...s, photos: [...currentPhotos, photoUrl] };
+                      if (viewingPhotoService && viewingPhotoService.id === s.id) setViewingPhotoService(updated);
+                      return updated;
+                  }
+                  return s;
+              }));
             } catch (error) {
               console.error('Error uploading service photo', error);
+              if (error instanceof Error && error.message === 'auth-required') {
+                alert('Debes iniciar sesión para guardar fotografías de forma segura.');
+                return;
+              }
               const errorCode = typeof error === 'object' && error && 'code' in error
                 ? String((error as { code?: unknown }).code)
                 : '';
@@ -240,24 +257,17 @@ export default function Services({ services, setServices, settings }: ServicesPr
               alert(storageNotAvailable
                 ? 'Las fotos en la nube todavía no están disponibles en este proyecto. El servicio y los demás datos sí se guardan correctamente.'
                 : 'No fue posible guardar la fotografía en la nube. Revisa tu conexión e inténtalo nuevamente.');
-              return;
+            } finally {
+              setIsUploadingPhoto(false);
+              setPhotoServiceId(null);
+              if (cameraInputRef.current) cameraInputRef.current.value = '';
+              if (galleryInputRef.current) galleryInputRef.current.value = '';
             }
-            
-            setServices(prev => prev.map(s => {
-                if (s.id === photoServiceId) {
-                    const currentPhotos = s.photos || [];
-                    const updated = { ...s, photos: [...currentPhotos, photoUrl] };
-                    if (viewingPhotoService && viewingPhotoService.id === s.id) {
-                        setViewingPhotoService(updated);
-                    }
-                    return updated;
-                }
-                return s;
-            }));
-            
-            // Clear inputs
-            if (cameraInputRef.current) cameraInputRef.current.value = '';
-            if (galleryInputRef.current) galleryInputRef.current.value = '';
+        };
+        reader.onerror = () => {
+          setIsUploadingPhoto(false);
+          setPhotoServiceId(null);
+          alert('No pudimos leer la fotografía seleccionada. Inténtalo nuevamente.');
         };
         reader.readAsDataURL(file);
     }
@@ -921,11 +931,11 @@ export default function Services({ services, setServices, settings }: ServicesPr
                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Evidencia Fotográfica</span>
                         </div>
                         {PHOTO_UPLOADS_ENABLED ? <div className="flex gap-2 mb-3">
-                            <button onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                <Camera size={16} /> <span className="text-xs font-bold">Cámara</span>
+                            <button disabled={isUploadingPhoto} onClick={(e) => { e.stopPropagation(); triggerCamera(service.id); }} className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                                <Camera size={16} /> <span className="text-xs font-bold">{isUploadingPhoto && photoServiceId === service.id ? 'Guardando…' : 'Cámara'}</span>
                             </button>
-                            <button onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="flex-1 bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 border border-slate-600/30 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                <ImageIcon size={16} /> <span className="text-xs font-bold">Galería</span>
+                            <button disabled={isUploadingPhoto} onClick={(e) => { e.stopPropagation(); triggerGallery(service.id); }} className="flex-1 bg-slate-700/30 hover:bg-slate-700/50 text-slate-400 border border-slate-600/30 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                                <ImageIcon size={16} /> <span className="text-xs font-bold">{isUploadingPhoto && photoServiceId === service.id ? 'Guardando…' : 'Galería'}</span>
                             </button>
                         </div> : <div className="mb-3 rounded-lg border border-slate-700 bg-slate-900/40 p-3 text-center text-xs text-slate-400">Carga de fotos desactivada durante el piloto para controlar costos.</div>}
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -1131,13 +1141,13 @@ export default function Services({ services, setServices, settings }: ServicesPr
               </div>
 
               {PHOTO_UPLOADS_ENABLED && <div className="mt-4 shrink-0 flex justify-center gap-4">
-                   <button onClick={() => triggerCamera(viewingPhotoService.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-900/50 transition-all active:scale-95">
+                   <button disabled={isUploadingPhoto} onClick={() => triggerCamera(viewingPhotoService.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-900/50 transition-all active:scale-95 disabled:opacity-50">
                        <Camera size={20} />
-                       <span>Cámara</span>
+                       <span>{isUploadingPhoto ? 'Guardando…' : 'Cámara'}</span>
                    </button>
-                   <button onClick={() => triggerGallery(viewingPhotoService.id)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95">
+                   <button disabled={isUploadingPhoto} onClick={() => triggerGallery(viewingPhotoService.id)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50">
                        <ImageIcon size={20} />
-                       <span>Galería</span>
+                       <span>{isUploadingPhoto ? 'Guardando…' : 'Galería'}</span>
                    </button>
               </div>}
            </div>
