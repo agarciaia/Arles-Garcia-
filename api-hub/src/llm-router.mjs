@@ -53,9 +53,16 @@ function extractOpenAIText(data) {
   return data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '';
 }
 
+function authTokenFor(name) {
+  if (name === 'vercelai') return process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
+  if (name === 'cloudflare') return process.env.CLOUDFLARE_API_TOKEN;
+  const p = providers[name];
+  return p?.env ? process.env[p.env] : undefined;
+}
+
 async function callOpenAICompatible(name, input) {
   const p = providers[name];
-  const key = process.env[p.env];
+  const key = authTokenFor(name);
   let baseUrl = p.baseUrl;
   if (name === 'cloudflare') {
     baseUrl = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`;
@@ -67,7 +74,7 @@ async function callOpenAICompatible(name, input) {
     temperature: input.temperature ?? 0.2
   };
   if (input.maxTokens) body.max_tokens = input.maxTokens;
-  const headers = { Authorization: `Bearer ${key || process.env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' };
+  const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
   if (name === 'openrouter') {
     if (process.env.OPENROUTER_SITE_URL) headers['HTTP-Referer'] = process.env.OPENROUTER_SITE_URL;
     if (process.env.OPENROUTER_APP_NAME) headers['X-OpenRouter-Title'] = process.env.OPENROUTER_APP_NAME;
