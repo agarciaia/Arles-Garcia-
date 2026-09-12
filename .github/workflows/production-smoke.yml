@@ -1,0 +1,37 @@
+name: Production Smoke
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for Vercel production and verify app
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://arles-garcia.vercel.app"
+          echo "Waiting for production deployment..."
+          ready=0
+          for attempt in $(seq 1 30); do
+            root_code=$(curl -L -sS -o /tmp/root.html -w '%{http_code}' "$BASE_URL/" || true)
+            api_code=$(curl -L -sS -o /tmp/readiness.json -w '%{http_code}' "$BASE_URL/api/ai/readiness" || true)
+            echo "Attempt $attempt: root=$root_code readiness=$api_code"
+            if [ "$root_code" = "200" ] && [ "$api_code" = "200" ]; then
+              ready=1
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$ready" != "1" ]; then
+            echo "Production did not become ready in time."
+            exit 1
+          fi
+
+          grep -q '<div id="root"' /tmp/root.html
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/readiness.json','utf8')); if(x.ok!==true) process.exit(1); console.log('AI readiness:', JSON.stringify(x));"
