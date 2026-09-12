@@ -20,7 +20,11 @@ export interface Service {
   plate: string;
   brand: string;
   model: string;
+  year?: number;
+  vin?: string;
+  mileage?: number;
   reason: string;
+  observations?: string;
   
   // Financials
   price: number; // Legacy compatibility (Base Labor)
