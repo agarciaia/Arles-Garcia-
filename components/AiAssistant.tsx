@@ -8,7 +8,7 @@ const AiAssistant: React.FC = () => {
     {
       id: '1',
       role: 'model',
-      content: 'Hola, soy tu asistente de taller. Puedo ayudarte a diagnosticar problemas, buscar repuestos cercanos o responder dudas mecánicas.',
+      content: 'Hola, soy tu asistente de taller. Puedo ayudarte a revisar información, ordenar notas de servicio, buscar alternativas y responder dudas mecánicas con cautela.',
       timestamp: Date.now()
     }
   ]);
@@ -89,12 +89,12 @@ const AiAssistant: React.FC = () => {
     }
 
     const response = await searchNearbyPlaces(query, location);
-    let content = response.text || "Aquí tienes algunos lugares:";
+    const content = response.text || "No fue posible preparar una respuesta.";
     
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'model',
-      content: content,
+      content,
       groundingMetadata: { groundingChunks: response.groundingChunks },
       timestamp: Date.now()
     }]);
@@ -139,9 +139,7 @@ const AiAssistant: React.FC = () => {
   };
 
   return (
-    // Height calculation adjusted for new header (100vh - header height - margins)
     <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-9rem)] flex flex-col bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-      {/* Header */}
       <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center shrink-0">
         <div className="flex items-center gap-3">
           <div className="bg-blue-600 p-2 rounded-lg">
@@ -149,7 +147,7 @@ const AiAssistant: React.FC = () => {
           </div>
           <div className="hidden sm:block">
             <h2 className="text-base font-bold text-white">Asistente IA</h2>
-            <p className="text-[10px] text-slate-400">Powered by Gemini</p>
+            <p className="text-[10px] text-slate-400">Asistente IA</p>
           </div>
         </div>
 
@@ -173,7 +171,6 @@ const AiAssistant: React.FC = () => {
         </div>
       </div>
 
-      {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-950/50">
         {messages.map((msg) => (
           <div 
@@ -203,7 +200,7 @@ const AiAssistant: React.FC = () => {
              <div className="bg-blue-600/10 text-slate-100 rounded-2xl rounded-tl-none border border-blue-500/20 p-4 flex items-center gap-2">
                 <Loader2 size={16} className="animate-spin text-blue-400" />
                 <span className="text-sm text-slate-400">
-                  {mode === 'maps' ? 'Buscando lugares...' : useThinking ? 'Pensando...' : 'Escribiendo...'}
+                  {mode === 'maps' ? 'Preparando respuesta...' : useThinking ? 'Pensando...' : 'Escribiendo...'}
                 </span>
              </div>
           </div>
@@ -211,7 +208,6 @@ const AiAssistant: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
         <form onSubmit={handleSend} className="relative">
           {mode === 'chat' && (
@@ -234,11 +230,7 @@ const AiAssistant: React.FC = () => {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder={
-              mode === 'maps' 
-                ? "Buscar repuestos o talleres..." 
-                : "Escribe tu consulta aquí..."
-            }
+            placeholder={mode === 'maps' ? "Consulta sobre repuestos o lugares..." : "Escribe tu consulta aquí..."}
             className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-4 pr-12 py-3.5 text-sm md:text-base text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
             disabled={isLoading}
           />
