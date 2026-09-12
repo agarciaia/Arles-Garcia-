@@ -116,12 +116,14 @@ export async function searchTripadvisorLocations(searchQuery, { latLong, languag
   return jsonFetch(`${providers.tripadvisor.baseUrl}/location/search?${new URLSearchParams(params)}`);
 }
 
-export async function askGemini(prompt, { model = 'gemini-2.5-flash' } = {}) {
+export async function askGemini(prompt, { model = 'gemini-3.8-flash', previousInteractionId } = {}) {
   const key = requireKey('gemini');
-  return jsonFetch(`${providers.gemini.baseUrl}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+  const body = { model, input: prompt };
+  if (previousInteractionId) body.previous_interaction_id = previousInteractionId;
+  return jsonFetch(`${providers.gemini.baseUrl}/interactions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
   });
 }
 
