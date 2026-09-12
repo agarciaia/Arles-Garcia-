@@ -1,40 +1,51 @@
+import { analyzeService, generateChatResponse as generateAiChatResponse } from './ai';
+
 interface ApiResponse {
   text?: string;
   groundingMetadata?: unknown;
-  groundingChunks?: unknown;
+  groundingChunks?: unknown[];
   parts?: string[];
   summary?: string;
+  detectedWork?: string[];
+  mentionedParts?: string[];
+  missingInformation?: string[];
+  suggestedQuestions?: string[];
+  customerMessage?: string;
+  disclaimer?: string;
 }
 
-const postToProtectedApi = async (path: string, body: unknown): Promise<ApiResponse> => {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    throw new Error('El asistente de IA no está disponible en este momento.');
-  }
-  return response.json();
-};
-
-// Las claves privadas nunca se incluyen en el navegador. Estas funciones usan
-// endpoints protegidos que deben configurarse durante el despliegue.
+// Compatibilidad: se conserva el módulo y las firmas antiguas, pero las llamadas
+// ya no dependen de Gemini ni exponen claves en el navegador.
 export const generateChatResponse = async (
   history: { role: string; content: string }[],
   message: string,
   useThinking: boolean = false,
-) => postToProtectedApi('/api/gemini/chat', { history, message, useThinking });
+): Promise<ApiResponse> => generateAiChatResponse(history, message, useThinking);
 
 export const searchNearbyPlaces = async (
   query: string,
   userLocation?: { lat: number; lng: number },
-) => postToProtectedApi('/api/gemini/places', { query, userLocation });
+): Promise<ApiResponse> => {
+  const locationText = userLocation
+    ? `Ubicación aproximada entregada por el navegador: lat ${userLocation.lat}, lng ${userLocation.lng}. `
+    : '';
+  const response = await generateAiChatResponse([], `${locationText}Ayúdame con esta búsqueda relacionada con el taller: ${query}. Si no tienes datos actuales o verificables de lugares, dilo claramente y no inventes negocios, direcciones ni horarios.`, false);
+  return { ...response, groundingChunks: [] };
+};
 
-export const analyzeServiceNotes = async (notes: string) => {
+export const analyzeServiceNotes = async (notes: string): Promise<ApiResponse> => {
   try {
-    return await postToProtectedApi('/api/gemini/analyze-service', { notes });
+    const analysis = await analyzeService(null, notes);
+    return {
+      parts: analysis.detectedWork,
+      summary: analysis.summary,
+      detectedWork: analysis.detectedWork,
+      mentionedParts: analysis.mentionedParts,
+      missingInformation: analysis.missingInformation,
+      suggestedQuestions: analysis.suggestedQuestions,
+      customerMessage: analysis.customerMessage,
+      disclaimer: analysis.disclaimer,
+    };
   } catch {
     return { parts: [], summary: 'No fue posible analizar las notas.' };
   }
