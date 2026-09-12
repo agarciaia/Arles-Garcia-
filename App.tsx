@@ -15,6 +15,7 @@ import {
   syncWorkshopState,
   WorkshopState,
 } from './services/cloudData';
+import { preserveServiceOptionalFields } from './services/aiData';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Services = lazy(() => import('./components/Services'));
@@ -23,6 +24,7 @@ const Costs = lazy(() => import('./components/Costs'));
 const Settings = lazy(() => import('./components/Settings'));
 const Guide = lazy(() => import('./components/Guide'));
 const Onboarding = lazy(() => import('./components/Onboarding'));
+const WorkshopAiTools = lazy(() => import('./components/WorkshopAiTools'));
 
 const initialServices: Service[] = [];
 const initialCosts: Cost[] = [];
@@ -79,8 +81,12 @@ function App() {
   };
 
   const setServicesSafely: React.Dispatch<React.SetStateAction<Service[]>> = (value) => {
-    if (canWrite) setServices(value);
-    else showReadOnlyMessage();
+    if (canWrite) {
+      setServices((previous) => {
+        const next = typeof value === 'function' ? value(previous) : value;
+        return preserveServiceOptionalFields(previous, next);
+      });
+    } else showReadOnlyMessage();
   };
   const setCostsSafely: React.Dispatch<React.SetStateAction<Cost[]>> = (value) => {
     if (canWrite) setCosts(value);
@@ -255,11 +261,21 @@ function App() {
       case AppView.SERVICES:
         // Solo Admin y Profesor ven Servicios
         if (role === 'admin' || role === 'profesor') {
-            return <Services services={services} setServices={setServicesSafely} settings={settings} />;
+            return (
+              <div className="space-y-4">
+                <WorkshopAiTools mode="services" services={services} quotes={quotes} settings={settings} setServices={setServicesSafely} />
+                <Services services={services} setServices={setServicesSafely} settings={settings} />
+              </div>
+            );
         }
         return <div className="p-10 text-center text-slate-400">No tienes permiso para gestionar servicios.</div>;
       case AppView.QUOTES:
-        return <Quotes quotes={quotes} setQuotes={setQuotesSafely} settings={settings} services={services} setServices={setServicesSafely} onNavigate={setCurrentView} />;
+        return (
+          <div className="space-y-4">
+            <WorkshopAiTools mode="quotes" services={services} quotes={quotes} settings={settings} />
+            <Quotes quotes={quotes} setQuotes={setQuotesSafely} settings={settings} services={services} setServices={setServicesSafely} onNavigate={setCurrentView} />
+          </div>
+        );
       case AppView.COSTS:
         // Solo el Admin ve los Costos reales
         if (role === 'admin') {
