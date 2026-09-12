@@ -1,6 +1,7 @@
 import { createVerify } from 'node:crypto';
 
 const CERT_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+const APP_FIREBASE_PROJECT_ID = 'gen-lang-client-0518660857';
 let cachedCerts = null;
 let certsExpireAt = 0;
 
@@ -31,10 +32,9 @@ async function getFirebaseCerts() {
 }
 
 export async function requireFirebaseUser(req) {
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
-  if (!projectId) {
-    throw apiError('La autenticación del backend aún no está configurada.', 503, 'firebase_project_not_configured');
-  }
+  // El project ID no es un secreto y ya forma parte de la configuración cliente de esta app.
+  // La variable de entorno permite sobrescribirlo en despliegues futuros sin cambiar código.
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || APP_FIREBASE_PROJECT_ID;
 
   const authorization = req.headers?.authorization || req.headers?.Authorization || '';
   if (!authorization.startsWith('Bearer ')) {
