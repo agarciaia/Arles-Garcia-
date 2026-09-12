@@ -34,7 +34,7 @@ export const providers = {
   nvidia: { group: 10, env: 'NVIDIA_API_KEY', baseUrl: 'https://integrate.api.nvidia.com/v1', purpose: 'NVIDIA NIM para modelos de lenguaje', openAICompatible: true, modelEnv: 'NVIDIA_MODEL' },
   mistral: { group: 10, env: 'MISTRAL_API_KEY', baseUrl: 'https://api.mistral.ai/v1', purpose: 'Modelos Mistral para chat, extracción y código', openAICompatible: true, modelEnv: 'MISTRAL_MODEL' },
   huggingface: { group: 10, env: 'HF_TOKEN', baseUrl: 'https://router.huggingface.co/v1', purpose: 'Hugging Face Inference Providers con selección de proveedor', openAICompatible: true, modelEnv: 'HF_MODEL' },
-  vercelai: { group: 10, env: 'AI_GATEWAY_API_KEY', baseUrl: 'https://ai-gateway.vercel.sh/v1', purpose: 'Vercel AI Gateway para acceso unificado y fallback entre modelos', openAICompatible: true, modelEnv: 'VERCEL_AI_MODEL' },
+  vercelai: { group: 10, env: 'AI_GATEWAY_API_KEY', envAny: ['AI_GATEWAY_API_KEY', 'VERCEL_OIDC_TOKEN'], baseUrl: 'https://ai-gateway.vercel.sh/v1', purpose: 'Vercel AI Gateway con API key o OIDC automático del deployment', openAICompatible: true, modelEnv: 'VERCEL_AI_MODEL' },
   cerebras: { group: 10, env: 'CEREBRAS_API_KEY', baseUrl: 'https://api.cerebras.ai/v1', purpose: 'Inferencia Cerebras de alta velocidad', openAICompatible: true, modelEnv: 'CEREBRAS_MODEL' },
   cohere: { group: 10, env: 'COHERE_API_KEY', baseUrl: 'https://api.cohere.com/v2', purpose: 'Cohere Chat v2', modelEnv: 'COHERE_MODEL' },
   cloudflare: { group: 10, envs: ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'], baseUrl: null, purpose: 'Cloudflare Workers AI con endpoint compatible OpenAI', openAICompatible: true, modelEnv: 'CLOUDFLARE_MODEL' }
@@ -43,6 +43,17 @@ export const providers = {
 export function providerStatus(name) {
   const p = providers[name];
   if (!p) throw new Error(`Proveedor desconocido: ${name}`);
+
+  if (p.envAny?.length) {
+    const configured = p.envAny.some((key) => Boolean(process.env[key]));
+    return {
+      ...p,
+      configured,
+      requiresKey: true,
+      missingEnv: configured ? [] : p.envAny
+    };
+  }
+
   const envs = p.envs || (p.env ? [p.env] : []);
   const missing = envs.filter((key) => !process.env[key]);
   return {
