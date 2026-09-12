@@ -1,0 +1,12 @@
+{
+  "name": "arles-api-hub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --env-file=.env.local src/check-config.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
