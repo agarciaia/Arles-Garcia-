@@ -13,92 +13,72 @@ Capa central de integraciones para reutilizar APIs en distintos proyectos sin ex
 7. **Validación de contactos:** Numverify, Mailboxlayer
 8. **Redes sociales:** Ayrshare, PostLake
 9. **Turismo/huésped:** Open-Meteo, Ticketmaster, Eventbrite y Tripadvisor
-10. **IA:** Gemini API
+10. **IA multi-proveedor:** Gemini, OpenRouter, Groq, NVIDIA NIM, Mistral, Hugging Face, Vercel AI Gateway, Cerebras, Cohere y Cloudflare Workers AI
 
-En total hay **21 proveedores** registrados dentro de los 10 grupos prioritarios.
+## Router automático de IA
+
+`src/llm-router.mjs` unifica los proveedores de IA y permite cambiar de proveedor sin reescribir la aplicación.
+
+Funciones principales:
+
+- `chatWithProvider(provider, input)`: fuerza un proveedor concreto.
+- `chatAuto(input)`: prueba automáticamente los proveedores configurados hasta obtener respuesta.
+- `activeLlmProviders()`: muestra qué proveedores están listos y qué modelo usarán.
+- `transcribeWithGroq(audioBlob)`: convierte audio a texto con Whisper en Groq.
+
+Orden de fallback inicial:
+
+`OpenRouter -> Groq -> Cerebras -> Mistral -> Gemini -> Hugging Face -> NVIDIA -> Cohere -> Vercel AI Gateway -> Cloudflare`
+
+OpenRouter usa por defecto `openrouter/free`, pensado para pruebas, demos y cargas pequeñas sin coste por tokens. Para producción conviene configurar proveedores/modelos con límites y presupuesto controlados.
+
+### Ejemplo
+
+```js
+import { chatAuto, transcribeWithGroq } from './src/index.mjs';
+
+const respuesta = await chatAuto({
+  system: 'Eres un analista comercial.',
+  prompt: 'Analiza este negocio y propone una oferta breve.'
+});
+
+console.log(respuesta.provider, respuesta.model, respuesta.text);
+```
+
+Si OpenRouter no está configurado o falla, `chatAuto()` intenta el siguiente proveedor activo sin que la app tenga que saber cuál es.
 
 ## Estado real
 
-- **Open-Meteo:** listo para usarse inmediatamente; no requiere API key.
-- **Los demás proveedores:** código/configuración preparados, pero requieren la clave/token de tu propia cuenta antes de llamadas reales.
-- Eventbrite está incluido para consultas permitidas por su API (por ejemplo, eventos por ID); su antigua búsqueda pública general no se trata como disponible.
-- Algunos proveedores con endpoint variable según plan permiten sobrescribir su `BASE_URL` mediante variables de entorno.
-- Las claves **nunca deben guardarse en GitHub**. Usa `.env.local` en desarrollo y `Environment Variables` en Vercel.
+- **Open-Meteo:** funciona sin API key.
+- **APIs de IA:** el código está listo; cada proveedor requiere su propia credencial salvo mecanismos específicos de plataforma.
+- **GitHub Models no está integrado:** GitHub retiró ese servicio de inferencia en 2026. GitHub Copilot es un producto distinto.
+- Eventbrite está incluido solo para operaciones actualmente soportadas por su API.
+- Las claves nunca deben guardarse en GitHub. Usa `.env.local` en desarrollo y variables de entorno en Vercel.
 
-## Archivos
+## Uso automático en tus proyectos
 
-- `.env.example`: variables necesarias, sin secretos.
-- `src/providers.mjs`: registro de proveedores y estado de configuración.
-- `src/api-hub.mjs`: funciones reutilizables de las APIs.
-- `src/workflows.mjs`: automatizaciones que combinan varias APIs.
-- `src/check-config.mjs`: muestra cuáles están activadas y cuáles esperan credenciales.
+### Prospección QR
 
-## Uso rápido
+Dirección/web -> geocodificación -> validar teléfono/correo -> captura del sitio -> enlace corto -> `chatAuto()` genera análisis comercial y mensaje personalizado.
 
-```js
-import {
-  getWeather,
-  geocodeWithGeoapify,
-  shortenWithBitly,
-  validatePhone,
-  publishWithAyrshare,
-  askGemini
-} from './src/api-hub.mjs';
+### Gestión Taller
 
-const clima = await getWeather({ latitude: -33.52, longitude: -70.69 });
-const lugar = await geocodeWithGeoapify('Talca, Chile');
-const corto = await shortenWithBitly('https://ejemplo.cl/menu');
-const telefono = await validatePhone('987654321', 'CL');
+Audio del mecánico -> Groq Whisper -> texto -> `chatAuto()` estructura cliente, vehículo, trabajo solicitado, repuestos y observaciones.
 
-await publishWithAyrshare({
-  post: 'Nueva publicación',
-  platforms: ['instagram', 'facebook']
-});
+### QR Huésped
 
-const ia = await askGemini('Analiza este negocio y propone una oferta comercial.');
-```
+Ubicación -> clima + eventos + lugares -> IA redacta recomendaciones para el huésped.
 
-## Uso automático
+### Marketing
 
-Sí. No necesitas usar cada API manualmente. `src/workflows.mjs` incluye dos flujos iniciales:
-
-### `buildProspectPack()`
-
-Pensado para tu prospección QR. Puede combinar, según las claves activadas:
-
-- geocodificación del negocio;
-- validación de teléfono;
-- validación de correo;
-- enlace corto de la demo;
-- URL de captura del sitio;
-- análisis comercial con Gemini.
-
-### `buildGuestPack()`
-
-Pensado para QR Huésped:
-
-- clima actual/pronóstico;
-- eventos cercanos;
-- lugares turísticos/restaurantes/hoteles.
-
-Además puedes automatizar:
-
-- al crear un cliente QR → generar enlace corto y medir clics;
-- al guardar una cotización → generar PDF;
-- al cargar una imagen → quitar fondo y comprimirla;
-- en Gestión Taller → consultar información vehicular mediante el proveedor configurado;
-- en marketing → generar contenido con Gemini y enviarlo a Ayrshare/PostLake;
-- en una tarea programada de Vercel → actualizar clima, eventos o datos periódicamente.
+Datos del negocio -> IA genera contenido -> Ayrshare/PostLake publica o programa en redes.
 
 ## Activación
 
-1. Obtén las claves de los proveedores que quieras utilizar.
-2. Copia `.env.example` a `.env.local` o crea esas variables en Vercel.
-3. Ejecuta `npm run check` dentro de `api-hub` para saber qué proveedores están activos.
-4. Llama las funciones desde backend/serverless, no desde HTML público.
+1. Copia `.env.example` a `.env.local` para desarrollo o crea las mismas variables en Vercel.
+2. Obtén únicamente las claves de los proveedores que quieras utilizar.
+3. Ejecuta `npm run check` dentro de `api-hub` para revisar estado.
+4. Importa desde `src/index.mjs`.
+5. Ejecuta todo lo que use secretos desde backend/serverless, nunca desde HTML público.
 
-No es necesario activar las 21 APIs a la vez. Puedes activar solo las que use cada proyecto.
-
-## Seguridad
-
-Nunca expongas claves secretas en HTML o JavaScript del navegador. En producción, las funciones que requieren claves deben ejecutarse desde backend/serverless (por ejemplo, Vercel Functions) y devolver al frontend únicamente los datos necesarios.
+No necesitas activar todos los proveedores. El router ignora automáticamente los que no tengan credenciales.
