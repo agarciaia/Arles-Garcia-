@@ -1,80 +1,70 @@
-# API Hub — Arles
+# Arles API Hub
 
-Capa central de integraciones para reutilizar APIs en distintos proyectos sin exponer claves en el frontend.
+Capa reutilizable para conectar las APIs priorizadas para tus proyectos de QR, Presencia Digital, Gestión Taller, QR Huésped, prospección y automatización.
 
-## Grupos instalados
+## Qué incluye
 
-1. **Enlaces/QR:** Bitly, ClickMeter
-2. **Mapas y ubicación:** Geoapify, Mapbox
-3. **Capturas web:** Screenshotlayer, ApiFlash
-4. **Imágenes:** APITemplate.io, PhotoRoom, Tinify
-5. **PDF:** CraftMyPDF, BuildPDF
+Los 10 grupos prioritarios están representados con adaptadores reutilizables:
+
+1. **Links/QR:** Bitly + ClickMeter
+2. **Mapas:** Geoapify + Mapbox
+3. **Capturas web:** ApiFlash + Screenshotlayer
+4. **Imágenes:** APITemplate.io + PhotoRoom + Tinify
+5. **PDF:** CraftMyPDF + BuildPDF
 6. **Vehículos:** CarVector
-7. **Validación de contactos:** Numverify, Mailboxlayer
-8. **Redes sociales:** Ayrshare, PostLake
-9. **Turismo/huésped:** Open-Meteo, Ticketmaster, Tripadvisor
-10. **IA:** Gemini API
+7. **Validación:** Numverify + Mailboxlayer
+8. **Redes sociales:** Ayrshare + PostLake
+9. **Turismo/eventos/clima:** Open-Meteo + Ticketmaster + Eventbrite + Tripadvisor Terra
+10. **IA:** Gemini
 
-## Estado real
+> Importante: GitHub no debe almacenar las claves reales. Este repositorio solo contiene el código y los nombres de variables. Las claves se agregan luego en variables de entorno (por ejemplo, Vercel Environment Variables).
 
-- **Open-Meteo:** listo para usarse inmediatamente; no requiere API key.
-- **Los demás proveedores:** código y configuración preparados, pero requieren que agregues la clave/token de tu propia cuenta antes de poder hacer llamadas reales.
-- Las claves **no deben guardarse en GitHub**. Usa `.env.local` en desarrollo y `Environment Variables` en Vercel.
+## Instalación local
 
-## Archivos
-
-- `.env.example`: nombres de todas las variables necesarias.
-- `src/providers.mjs`: registro central de proveedores.
-- `src/api-hub.mjs`: funciones listas y cliente genérico.
-- `src/check-config.mjs`: muestra cuáles están activadas y cuáles esperan credenciales.
-
-## Ejemplos
-
-```js
-import {
-  getWeather,
-  geocodeWithGeoapify,
-  shortenWithBitly,
-  validatePhone,
-  publishWithAyrshare,
-  askGemini
-} from './src/api-hub.mjs';
-
-const clima = await getWeather({
-  latitude: -33.52,
-  longitude: -70.69
-});
-
-const lugar = await geocodeWithGeoapify('Talca, Chile');
-const corto = await shortenWithBitly('https://ejemplo.cl/menu');
-const telefono = await validatePhone('987654321', 'CL');
-
-await publishWithAyrshare({
-  post: 'Nueva publicación',
-  platforms: ['instagram', 'facebook']
-});
-
-const ia = await askGemini('Analiza este negocio y propone una oferta comercial.');
+```bash
+cd api-hub
+npm install
+npm run check
 ```
 
-## Uso automático
+Node.js 20+.
 
-Sí. Una app puede llamar estas funciones sin intervención manual. Ejemplos:
+## Activar APIs
 
-- Al crear un prospecto: geocodificar dirección + validar teléfono/email + sacar captura del sitio.
-- Al crear un cliente QR: generar enlace corto y medir clics.
-- En QR Huésped: consultar clima, eventos y lugares cercanos automáticamente.
-- En Gestión Taller: consultar información vehicular cuando exista una patente/VIN compatible con el proveedor.
-- En marketing: generar contenido con IA y enviarlo a Ayrshare para publicación programada.
-- En documentos: generar PDF al guardar una cotización u orden.
+Copia `.env.example` a `.env` en tu entorno local o crea las mismas variables en Vercel. No subas `.env` a GitHub.
 
-## Activación
+**Open-Meteo funciona sin clave.** Las demás funciones exigen la cuenta/clave correspondiente o, en algunos servicios, una licencia/plan.
 
-1. Crea/obtén las claves de los proveedores que quieras usar.
-2. Copia `.env.example` a `.env.local` y completa solo las claves necesarias, o agrégalas como variables de entorno en Vercel.
-3. Ejecuta `npm run check` dentro de `api-hub` para revisar qué integraciones están activas.
-4. Importa las funciones desde `src/api-hub.mjs` en el backend de cada aplicación.
+## Uso rápido
+
+```ts
+import { openMeteoForecast, bitlyShorten, geoapifyGeocode, geminiGenerate } from './src/index.js';
+
+const weather = await openMeteoForecast(-33.52, -70.69);
+const address = await geoapifyGeocode('Lo Espejo, Santiago, Chile');
+const short = await bitlyShorten('https://mi-demo.cl/cliente');
+const analysis = await geminiGenerate('Analiza este negocio y su presencia digital.');
+```
+
+## Automatización
+
+`src/workflows.ts` contiene ejemplos de composición. `buildProspectPack()` combina geocodificación, captura web, enlace corto e IA. Eso permite dispararlo desde una ruta API, un formulario, una tarea programada, Vercel, n8n/Make o desde otra app.
+
+## Estado de los adaptadores
+
+- **ready:** funciona sin credencial externa (actualmente Open-Meteo).
+- **ready-needs-key:** integración lista; falta colocar tu clave/autorizar la cuenta.
+- **configurable:** estructura lista, pero el endpoint se deja en variable de entorno porque el proveedor/plan puede cambiar su base URL o contrato.
+
+Consulta `src/registry.ts` para ver el estado de cada proveedor.
 
 ## Seguridad
 
-Nunca llames APIs con claves secretas directamente desde HTML o JavaScript del navegador. Para producción, estas funciones deben ejecutarse en backend/serverless (por ejemplo, Vercel Functions) y devolver al frontend únicamente los datos necesarios.
+- No incrustes secretos en HTML ni frontend público.
+- Llama APIs con claves desde backend/serverless.
+- En Vercel guarda las claves en **Project → Settings → Environment Variables**.
+- Aplica límites de uso, logs y manejo de errores antes de automatizaciones masivas.
+
+## Nota sobre Eventbrite
+
+La búsqueda pública general de eventos de Eventbrite está deprecada desde 2019. El adaptador incluido consulta eventos por ID; para descubrimiento general usa Ticketmaster, que sí mantiene Discovery API.

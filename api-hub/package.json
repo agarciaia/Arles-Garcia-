@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {"node": ">=20"},
   "scripts": {
-    "check": "node --env-file=.env.local src/check-config.mjs"
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
   },
-  "engines": {
-    "node": ">=20"
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.3"
   }
 }
