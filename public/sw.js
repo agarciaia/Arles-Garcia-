@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestion-taller-v3';
+const CACHE_NAME = 'gestion-taller-v4';
 const CORE_ASSETS = ['/', '/index.html', '/manifest.json', '/app_icon.png'];
 const OPTIONAL_ASSETS = [
   'https://cdn.tailwindcss.com',
@@ -8,10 +8,21 @@ const OPTIONAL_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(CORE_ASSETS);
+    for (const asset of CORE_ASSETS) {
+      try {
+        const response = await fetch(asset, { cache: 'reload' });
+        if (response.ok) await cache.put(asset, response);
+      } catch {
+        // La instalación puede continuar con los recursos disponibles.
+      }
+    }
     await Promise.allSettled(OPTIONAL_ASSETS.map((asset) => cache.add(asset)));
     await self.skipWaiting();
   })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -30,12 +41,13 @@ self.addEventListener('fetch', (event) => {
     || requestUrl.hostname.includes('googleapis');
   if (isFirebaseRequest) return;
 
+  // Para navegación siempre intentamos primero la versión publicada más reciente.
   if (event.request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        const response = await fetch(event.request);
+        const response = await fetch(event.request, { cache: 'no-store' });
         const cache = await caches.open(CACHE_NAME);
-        cache.put('/index.html', response.clone());
+        await cache.put('/index.html', response.clone());
         return response;
       } catch {
         return (await caches.match('/index.html')) || Response.error();
@@ -44,10 +56,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Los assets versionados de Vite pueden usar caché, pero se revalidan en segundo plano.
   event.respondWith((async () => {
     const cached = await caches.match(event.request);
     if (cached) {
-      event.waitUntil(fetch(event.request).then(async (response) => {
+      event.waitUntil(fetch(event.request, { cache: 'no-cache' }).then(async (response) => {
         if (response.ok || response.type === 'opaque') {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(event.request, response);
