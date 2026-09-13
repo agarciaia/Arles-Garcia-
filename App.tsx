@@ -25,6 +25,7 @@ const Settings = lazy(() => import('./components/Settings'));
 const Guide = lazy(() => import('./components/Guide'));
 const Onboarding = lazy(() => import('./components/Onboarding'));
 const WorkshopAiTools = lazy(() => import('./components/WorkshopAiTools'));
+const WorkshopIntegrations = lazy(() => import('./components/WorkshopIntegrations'));
 
 const initialServices: Service[] = [];
 const initialCosts: Cost[] = [];
@@ -264,6 +265,7 @@ function App() {
             return (
               <div className="space-y-4">
                 <WorkshopAiTools mode="services" services={services} quotes={quotes} settings={settings} setServices={setServicesSafely} />
+                <WorkshopIntegrations mode="services" services={services} quotes={quotes} setServices={setServicesSafely} />
                 <Services services={services} setServices={setServicesSafely} settings={settings} />
               </div>
             );
@@ -273,6 +275,7 @@ function App() {
         return (
           <div className="space-y-4">
             <WorkshopAiTools mode="quotes" services={services} quotes={quotes} settings={settings} />
+            <WorkshopIntegrations mode="quotes" services={services} quotes={quotes} />
             <Quotes quotes={quotes} setQuotes={setQuotesSafely} settings={settings} services={services} setServices={setServicesSafely} onNavigate={setCurrentView} />
           </div>
         );
