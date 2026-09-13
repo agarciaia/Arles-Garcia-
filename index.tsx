@@ -3,16 +3,54 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
-// Registrar el Service Worker para soporte PWA avanzado fuera de línea
+// Mantener la PWA instalada alineada con la última versión publicada.
+// El navegador normalmente limita la frecuencia de comprobación del Service Worker;
+// aquí pedimos una revisión explícita al abrir/volver a la app y recargamos una sola
+// vez cuando el nuevo worker toma el control.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then((registration) => {
-        console.log('Gestión Taller está disponible sin conexión:', registration.scope);
-      })
-      .catch((error) => {
-        console.warn('⚠️ No se pudo registrar el Service Worker (esperado en algunos navegadores de prueba):', error);
+  let refreshing = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js', {
+        updateViaCache: 'none',
       });
+
+      const activateWaitingWorker = () => {
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+      };
+
+      registration.addEventListener('updatefound', () => {
+        const worker = registration.installing;
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+            worker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      activateWaitingWorker();
+      await registration.update().catch(() => undefined);
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          registration.update().catch(() => undefined);
+        }
+      });
+
+      console.log('Gestión Taller PWA actualizada y disponible sin conexión:', registration.scope);
+    } catch (error) {
+      console.warn('⚠️ No se pudo registrar/actualizar el Service Worker:', error);
+    }
   });
 }
 
