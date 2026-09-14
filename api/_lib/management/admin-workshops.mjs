@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { readJson, sendJson, handleApiError } from "../_lib/http.mjs";
-import { adminServices } from "../_lib/firebase-admin.mjs";
-import { requireAdmin, requireSameOrigin, safeAdminError } from "../_lib/superadmin.mjs";
+import { readJson, sendJson, handleApiError } from "../http.mjs";
+import { adminServices } from "../firebase-admin.mjs";
+import { requireAdmin, requireSameOrigin, safeAdminError } from "../superadmin.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 function usernameOf(value) {
@@ -153,6 +153,11 @@ export default async function handler(req, res) {
       if (typeof body.password === "string" && body.password.length >= 8) {
         await auth.updateUser(id, { password: body.password });
         update.mustChangePassword = true;
+      } else if (typeof body.password === "string") {
+        const e = new Error("La contraseña temporal debe tener al menos 8 caracteres.");
+        e.statusCode = 400;
+        e.code = "weak_password";
+        throw e;
       }
       if (update.status)
         await auth.updateUser(id, { disabled: update.status === "suspended" });

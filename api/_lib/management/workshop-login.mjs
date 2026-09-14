@@ -4,9 +4,9 @@ import {
   requireMethod,
   sendJson,
   handleApiError,
-} from "../_lib/http.mjs";
-import { adminServices } from "../_lib/firebase-admin.mjs";
-import { safeAdminError } from "../_lib/superadmin.mjs";
+} from "../http.mjs";
+import { adminServices } from "../firebase-admin.mjs";
+import { safeAdminError } from "../superadmin.mjs";
 
 function invalid() {
   const error = new Error("Usuario o contraseña incorrectos.");
@@ -27,6 +27,12 @@ export default async function handler(req, res) {
       throw invalid();
     const { auth, db } = adminServices();
     const secret = process.env.SUPERADMIN_SESSION_SECRET || "";
+    if (!secret) {
+      const error = new Error("Configuración segura incompleta.");
+      error.statusCode = 503;
+      error.code = "auth_not_configured";
+      throw error;
+    }
     const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0];
     const rateId = createHmac("sha256", secret)
       .update(`${ip}:${username}`)

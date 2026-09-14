@@ -3,10 +3,10 @@ import {
   requireMethod,
   sendJson,
   handleApiError,
-} from "../_lib/http.mjs";
-import { requireFirebaseUser } from "../_lib/auth.mjs";
-import { adminServices } from "../_lib/firebase-admin.mjs";
-import { safeAdminError } from "../_lib/superadmin.mjs";
+} from "../http.mjs";
+import { requireFirebaseUser } from "../auth.mjs";
+import { adminServices } from "../firebase-admin.mjs";
+import { safeAdminError } from "../superadmin.mjs";
 
 export default async function handler(req, res) {
   try {

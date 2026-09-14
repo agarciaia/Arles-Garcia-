@@ -3,8 +3,8 @@ import {
   requireMethod,
   sendJson,
   handleApiError,
-} from "../_lib/http.mjs";
-import { adminServices } from "../_lib/firebase-admin.mjs";
+} from "../http.mjs";
+import { adminServices } from "../firebase-admin.mjs";
 import {
   checkRateLimit,
   clearAdminCookie,
@@ -15,7 +15,7 @@ import {
   safeAdminError,
   setAdminCookie,
   verifyBootstrap,
-} from "../_lib/superadmin.mjs";
+} from "../superadmin.mjs";
 
 export default async function handler(req, res) {
   try {
