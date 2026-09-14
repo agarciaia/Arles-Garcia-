@@ -1,8 +1,8 @@
-import adminPassword from "./_lib/management/admin-password.mjs";
-import adminSession from "./_lib/management/admin-session.mjs";
-import adminWorkshops from "./_lib/management/admin-workshops.mjs";
-import changePassword from "./_lib/management/change-password.mjs";
-import workshopLogin from "./_lib/management/workshop-login.mjs";
+import adminPassword from "../server/management/admin-password.mjs";
+import adminSession from "../server/management/admin-session.mjs";
+import adminWorkshops from "../server/management/admin-workshops.mjs";
+import changePassword from "../server/management/change-password.mjs";
+import workshopLogin from "../server/management/workshop-login.mjs";
 import { sendJson } from "./_lib/http.mjs";
 
 const handlers = {

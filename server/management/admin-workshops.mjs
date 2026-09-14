@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { readJson, sendJson, handleApiError } from "../http.mjs";
-import { adminServices } from "../firebase-admin.mjs";
-import { requireAdmin, requireSameOrigin, safeAdminError } from "../superadmin.mjs";
+import { readJson, sendJson, handleApiError } from "../../api/_lib/http.mjs";
+import { adminServices } from "../../api/_lib/firebase-admin.mjs";
+import { requireAdmin, requireSameOrigin, safeAdminError } from "../../api/_lib/superadmin.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 function usernameOf(value) {

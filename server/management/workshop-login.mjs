@@ -4,9 +4,9 @@ import {
   requireMethod,
   sendJson,
   handleApiError,
-} from "../http.mjs";
-import { adminServices } from "../firebase-admin.mjs";
-import { safeAdminError } from "../superadmin.mjs";
+} from "../../api/_lib/http.mjs";
+import { adminServices } from "../../api/_lib/firebase-admin.mjs";
+import { safeAdminError } from "../../api/_lib/superadmin.mjs";
 
 function invalid() {
   const error = new Error("Usuario o contraseña incorrectos.");
