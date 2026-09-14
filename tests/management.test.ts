@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import handler from "./management.mjs";
+import handler from "../api/management.mjs";
 
 describe("router de gestión", () => {
   it("responde 404 para acciones desconocidas", async () => {
