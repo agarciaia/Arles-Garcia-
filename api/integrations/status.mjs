@@ -12,11 +12,14 @@ export default async function handler(req, res) {
     const configuredLlmProviders = llmProviders
       .filter((item) => item.configured)
       .map((item) => item.name);
+    const carVectorReady = providerStatus('carvector').configured
+      && Boolean(process.env.CARVECTOR_VIN_PATH_TEMPLATE);
 
     sendJson(res, 200, {
       ai: configuredLlmProviders.length > 0,
       voice: providerStatus('groq').configured,
-      vin: providerStatus('carvector').configured && Boolean(process.env.CARVECTOR_VIN_PATH_TEMPLATE),
+      vin: true,
+      vinProvider: carVectorReady ? 'carvector+nhtsa-fallback' : 'nhtsa-vpic',
       phoneValidation: providerStatus('numverify').configured,
       imageOptimization: providerStatus('tinify').configured,
       cloudPdf: providerStatus('craftmypdf').configured || providerStatus('buildpdf').configured,
