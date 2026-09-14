@@ -1,15 +1,4 @@
-import {
-  Timestamp,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  writeBatch,
-} from 'firebase/firestore';
+import { Timestamp, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AccountInfo, AppSettings, Cost, Quote, Service } from '../types';
 
@@ -20,14 +9,12 @@ export interface WorkshopState {
   settings: AppSettings;
 }
 
-const TRIAL_DAYS = 15;
 const COLLECTION_NAMES = ['services', 'costs', 'quotes'] as const;
 
 const legacyStateDocument = (uid: string) => doc(db, 'users', uid, 'appData', 'workshop');
 const accountDocument = (uid: string) => doc(db, 'accounts', uid);
 const workshopDocument = (uid: string) => doc(db, 'workshops', uid);
-const workshopCollection = (uid: string, name: typeof COLLECTION_NAMES[number] | 'activity') =>
-  collection(db, 'workshops', uid, name);
+const workshopCollection = (uid: string, name: (typeof COLLECTION_NAMES)[number] | 'activity') => collection(db, 'workshops', uid, name);
 
 const sanitize = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
@@ -40,7 +27,11 @@ const dateToIso = (value: unknown): string | undefined => {
 };
 
 const writeDocumentsInChunks = async (
-  items: Array<{ reference: ReturnType<typeof doc>; value?: unknown; remove?: boolean }>,
+  items: Array<{
+    reference: ReturnType<typeof doc>;
+    value?: unknown;
+    remove?: boolean;
+  }>
 ) => {
   for (let index = 0; index < items.length; index += 400) {
     const batch = writeBatch(db);
@@ -55,46 +46,39 @@ const writeDocumentsInChunks = async (
 export const ensureAccount = async (uid: string, email: string) => {
   const reference = accountDocument(uid);
   if ((await getDoc(reference)).exists()) return;
-  const now = Date.now();
-  await setDoc(reference, {
-    uid,
-    email,
-    plan: 'trial',
-    status: 'trialing',
-    trialStartedAt: serverTimestamp(),
-    trialEndsAt: Timestamp.fromMillis(now + TRIAL_DAYS * 24 * 60 * 60 * 1000),
-    onboardingCompleted: false,
-    createdAt: serverTimestamp(),
-    lastSeenAt: serverTimestamp(),
-    schemaVersion: 1,
-  });
+  throw new Error('Esta cuenta todavía no fue habilitada por administración.');
 };
 
-export const subscribeToAccount = (
-  uid: string,
-  onData: (account: AccountInfo | null) => void,
-  onError: (error: Error) => void,
-) => onSnapshot(accountDocument(uid), (snapshot) => {
-  if (!snapshot.exists()) return onData(null);
-  const data = snapshot.data();
-  onData({
-    uid,
-    email: typeof data.email === 'string' ? data.email : '',
-    plan: data.plan === 'founder' ? 'founder' : 'trial',
-    status: ['trialing', 'active', 'past_due', 'suspended'].includes(data.status) ? data.status : 'trialing',
-    trialStartedAt: dateToIso(data.trialStartedAt),
-    trialEndsAt: dateToIso(data.trialEndsAt),
-    subscriptionStartedAt: dateToIso(data.subscriptionStartedAt),
-    paidThrough: dateToIso(data.paidThrough),
-    graceUntil: dateToIso(data.graceUntil),
-    onboardingCompleted: data.onboardingCompleted === true,
-    termsAcceptedAt: dateToIso(data.termsAcceptedAt),
-    privacyAcceptedAt: dateToIso(data.privacyAcceptedAt),
-    lastSeenAt: dateToIso(data.lastSeenAt),
-    firstServiceAt: dateToIso(data.firstServiceAt),
-    createdAt: dateToIso(data.createdAt),
-  });
-}, onError);
+export const subscribeToAccount = (uid: string, onData: (account: AccountInfo | null) => void, onError: (error: Error) => void) =>
+  onSnapshot(
+    accountDocument(uid),
+    (snapshot) => {
+      if (!snapshot.exists()) return onData(null);
+      const data = snapshot.data();
+      onData({
+        uid,
+        email: typeof data.email === 'string' ? data.email : '',
+        businessName: typeof data.businessName === 'string' ? data.businessName : undefined,
+        username: typeof data.username === 'string' ? data.username : undefined,
+        managed: data.managed === true,
+        plan: data.plan === 'founder' ? 'founder' : 'trial',
+        status: ['trialing', 'active', 'past_due', 'suspended'].includes(data.status) ? data.status : 'trialing',
+        trialStartedAt: dateToIso(data.trialStartedAt),
+        trialEndsAt: dateToIso(data.trialEndsAt),
+        subscriptionStartedAt: dateToIso(data.subscriptionStartedAt),
+        paidThrough: dateToIso(data.paidThrough),
+        graceUntil: dateToIso(data.graceUntil),
+        onboardingCompleted: data.onboardingCompleted === true,
+        termsAcceptedAt: dateToIso(data.termsAcceptedAt),
+        privacyAcceptedAt: dateToIso(data.privacyAcceptedAt),
+        lastSeenAt: dateToIso(data.lastSeenAt),
+        firstServiceAt: dateToIso(data.firstServiceAt),
+        createdAt: dateToIso(data.createdAt),
+        mustChangePassword: data.mustChangePassword === true
+      });
+    },
+    onError
+  );
 
 export const getEffectiveAccountStatus = (account: AccountInfo | null, now = new Date()) => {
   if (!account) return 'loading' as const;
@@ -120,12 +104,16 @@ export const recordActivity = async (uid: string) => {
 };
 
 export const completeOnboarding = async (uid: string) => {
-  await setDoc(accountDocument(uid), {
-    onboardingCompleted: true,
-    termsAcceptedAt: serverTimestamp(),
-    privacyAcceptedAt: serverTimestamp(),
-    lastSeenAt: serverTimestamp(),
-  }, { merge: true });
+  await setDoc(
+    accountDocument(uid),
+    {
+      onboardingCompleted: true,
+      termsAcceptedAt: serverTimestamp(),
+      privacyAcceptedAt: serverTimestamp(),
+      lastSeenAt: serverTimestamp()
+    },
+    { merge: true }
+  );
 };
 
 export const migrateWorkshopData = async (uid: string, fallback: WorkshopState) => {
@@ -133,12 +121,14 @@ export const migrateWorkshopData = async (uid: string, fallback: WorkshopState) 
   if ((await getDoc(workshopRef)).exists()) return;
   const legacySnapshot = await getDoc(legacyStateDocument(uid));
   const legacy = legacySnapshot.exists() ? legacySnapshot.data() : null;
-  const state: WorkshopState = legacy ? {
-    services: Array.isArray(legacy.services) ? legacy.services : [],
-    costs: Array.isArray(legacy.costs) ? legacy.costs : [],
-    quotes: Array.isArray(legacy.quotes) ? legacy.quotes : [],
-    settings: legacy.settings || fallback.settings,
-  } : fallback;
+  const state: WorkshopState = legacy
+    ? {
+        services: Array.isArray(legacy.services) ? legacy.services : [],
+        costs: Array.isArray(legacy.costs) ? legacy.costs : [],
+        quotes: Array.isArray(legacy.quotes) ? legacy.quotes : [],
+        settings: legacy.settings || fallback.settings
+      }
+    : fallback;
 
   await setDoc(workshopRef, {
     ownerUid: uid,
@@ -146,37 +136,52 @@ export const migrateWorkshopData = async (uid: string, fallback: WorkshopState) 
     schemaVersion: 3,
     migratedFromLegacy: legacySnapshot.exists(),
     createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
   });
   await writeDocumentsInChunks([
-    ...state.services.map((item) => ({ reference: doc(workshopCollection(uid, 'services'), item.id), value: item })),
-    ...state.costs.map((item) => ({ reference: doc(workshopCollection(uid, 'costs'), item.id), value: item })),
-    ...state.quotes.map((item) => ({ reference: doc(workshopCollection(uid, 'quotes'), item.id), value: item })),
+    ...state.services.map((item) => ({
+      reference: doc(workshopCollection(uid, 'services'), item.id),
+      value: item
+    })),
+    ...state.costs.map((item) => ({
+      reference: doc(workshopCollection(uid, 'costs'), item.id),
+      value: item
+    })),
+    ...state.quotes.map((item) => ({
+      reference: doc(workshopCollection(uid, 'quotes'), item.id),
+      value: item
+    }))
   ]);
 };
 
-export const subscribeToWorkshopState = (
-  uid: string,
-  onData: (state: WorkshopState) => void,
-  onError: (error: Error) => void,
-) => {
+export const subscribeToWorkshopState = (uid: string, onData: (state: WorkshopState) => void, onError: (error: Error) => void) => {
   const current: Partial<WorkshopState> = {};
   const loaded = new Set<string>();
   const emit = () => loaded.size === 4 && onData(current as WorkshopState);
   const unsubscribers = [
-    onSnapshot(workshopDocument(uid), (snapshot) => {
-      current.settings = snapshot.data()?.settings as AppSettings;
-      loaded.add('settings');
-      emit();
-    }, onError),
-    ...COLLECTION_NAMES.map((name) => onSnapshot(workshopCollection(uid, name), (snapshot) => {
-      const rows = snapshot.docs.map((row) => row.data());
-      if (name === 'services') current.services = rows as Service[];
-      if (name === 'costs') current.costs = rows as Cost[];
-      if (name === 'quotes') current.quotes = rows as Quote[];
-      loaded.add(name);
-      emit();
-    }, onError)),
+    onSnapshot(
+      workshopDocument(uid),
+      (snapshot) => {
+        current.settings = snapshot.data()?.settings as AppSettings;
+        loaded.add('settings');
+        emit();
+      },
+      onError
+    ),
+    ...COLLECTION_NAMES.map((name) =>
+      onSnapshot(
+        workshopCollection(uid, name),
+        (snapshot) => {
+          const rows = snapshot.docs.map((row) => row.data());
+          if (name === 'services') current.services = rows as Service[];
+          if (name === 'costs') current.costs = rows as Cost[];
+          if (name === 'quotes') current.quotes = rows as Quote[];
+          loaded.add(name);
+          emit();
+        },
+        onError
+      )
+    )
   ];
   return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
 };
@@ -184,19 +189,31 @@ export const subscribeToWorkshopState = (
 const byId = (items: Array<{ id: string }>) => new Map(items.map((item) => [item.id, item]));
 
 export const syncWorkshopState = async (uid: string, state: WorkshopState, previous: WorkshopState) => {
-  const writes: Array<{ reference: ReturnType<typeof doc>; value?: unknown; remove?: boolean }> = [];
+  const writes: Array<{
+    reference: ReturnType<typeof doc>;
+    value?: unknown;
+    remove?: boolean;
+  }> = [];
   for (const [name, nextItems, previousItems] of [
     ['services', state.services, previous.services],
     ['costs', state.costs, previous.costs],
-    ['quotes', state.quotes, previous.quotes],
+    ['quotes', state.quotes, previous.quotes]
   ] as const) {
     const next = byId(nextItems);
     const before = byId(previousItems);
     next.forEach((value, id) => {
-      if (JSON.stringify(value) !== JSON.stringify(before.get(id))) writes.push({ reference: doc(workshopCollection(uid, name), id), value });
+      if (JSON.stringify(value) !== JSON.stringify(before.get(id)))
+        writes.push({
+          reference: doc(workshopCollection(uid, name), id),
+          value
+        });
     });
     before.forEach((_value, id) => {
-      if (!next.has(id)) writes.push({ reference: doc(workshopCollection(uid, name), id), remove: true });
+      if (!next.has(id))
+        writes.push({
+          reference: doc(workshopCollection(uid, name), id),
+          remove: true
+        });
     });
   }
   if (JSON.stringify(state.settings) !== JSON.stringify(previous.settings)) {
