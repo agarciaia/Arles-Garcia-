@@ -11,7 +11,8 @@ service cloud.firestore {
     }
 
     function isOwner(uid) {
-      return verified() && request.auth.uid == uid;
+      return verified() && request.auth.uid == uid
+        && (!(request.auth.token.managedAccount == true) || request.auth.token.workshopId == uid);
     }
 
     function account(uid) {
@@ -27,16 +28,13 @@ service cloud.firestore {
       );
     }
 
+    function accountCanRead(uid) {
+      return isOwner(uid) && account(uid).status != 'suspended';
+    }
+
     match /accounts/{uid} {
       allow read: if isOwner(uid);
-      allow create: if isOwner(uid)
-        && request.resource.data.uid == uid
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.plan == 'trial'
-        && request.resource.data.status == 'trialing'
-        && request.resource.data.onboardingCompleted == false
-        && request.resource.data.trialEndsAt > request.time
-        && request.resource.data.trialEndsAt <= request.time + duration.value(16, 'd');
+      allow create: if false;
       allow update: if isOwner(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'lastSeenAt',
@@ -45,54 +43,56 @@ service cloud.firestore {
           'privacyAcceptedAt',
           'firstServiceAt'
         ]);
-      allow delete: if isOwner(uid);
+      allow delete: if false;
     }
 
     match /workshops/{uid} {
-      allow read: if isOwner(uid);
+      allow read: if accountCanRead(uid);
       allow create: if accountCanWrite(uid) && request.resource.data.ownerUid == uid;
       allow update: if accountCanWrite(uid)
         && resource.data.ownerUid == uid
         && request.resource.data.ownerUid == uid;
-      allow delete: if isOwner(uid);
+      allow delete: if false;
 
       match /services/{serviceId} {
-        allow read: if isOwner(uid);
+        allow read: if accountCanRead(uid);
         allow create, update: if accountCanWrite(uid)
           && request.resource.data.id == serviceId;
-        allow delete: if isOwner(uid);
+        allow delete: if accountCanWrite(uid);
       }
 
       match /costs/{costId} {
-        allow read: if isOwner(uid);
+        allow read: if accountCanRead(uid);
         allow create, update: if accountCanWrite(uid)
           && request.resource.data.id == costId;
-        allow delete: if isOwner(uid);
+        allow delete: if accountCanWrite(uid);
       }
 
       match /quotes/{quoteId} {
-        allow read: if isOwner(uid);
+        allow read: if accountCanRead(uid);
         allow create, update: if accountCanWrite(uid)
           && request.resource.data.id == quoteId;
-        allow delete: if isOwner(uid);
+        allow delete: if accountCanWrite(uid);
       }
 
       match /activity/{date} {
-        allow read: if isOwner(uid);
+        allow read: if accountCanRead(uid);
         allow create, update: if accountCanWrite(uid)
           && request.resource.data.date == date;
-        allow delete: if isOwner(uid);
+        allow delete: if accountCanWrite(uid);
       }
     }
 
     // Ruta anterior conservada temporalmente solo para migrar datos existentes.
     // Se cerrará después de confirmar que todos los talleres fueron migrados.
     match /users/{uid} {
-      allow read, create, update: if isOwner(uid);
+      allow read: if accountCanRead(uid);
+      allow create, update: if accountCanWrite(uid);
       allow delete: if isOwner(uid);
 
       match /appData/{document=**} {
-        allow read, write: if isOwner(uid);
+        allow read: if accountCanRead(uid);
+        allow write: if accountCanWrite(uid);
       }
     }
 

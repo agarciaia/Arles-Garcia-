@@ -4,17 +4,7 @@ import { auth } from './firebase';
 import Sidebar from './components/Sidebar';
 import { AccountInfo, AppView, Service, Cost, Quote, AppSettings, UserRole } from './types';
 import { AlertTriangle, Menu, X, Maximize, Minimize } from 'lucide-react';
-import {
-  ensureAccount,
-  completeOnboarding,
-  getEffectiveAccountStatus,
-  migrateWorkshopData,
-  recordActivity,
-  subscribeToAccount,
-  subscribeToWorkshopState,
-  syncWorkshopState,
-  WorkshopState,
-} from './services/cloudData';
+import { ensureAccount, completeOnboarding, getEffectiveAccountStatus, migrateWorkshopData, recordActivity, subscribeToAccount, subscribeToWorkshopState, syncWorkshopState, WorkshopState } from './services/cloudData';
 import { preserveServiceOptionalFields } from './services/aiData';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -26,6 +16,7 @@ const Guide = lazy(() => import('./components/Guide'));
 const Onboarding = lazy(() => import('./components/Onboarding'));
 const WorkshopAiTools = lazy(() => import('./components/WorkshopAiTools'));
 const WorkshopIntegrations = lazy(() => import('./components/WorkshopIntegrations'));
+const ClientPasswordChange = lazy(() => import('./components/ClientPasswordChange'));
 
 const initialServices: Service[] = [];
 const initialCosts: Cost[] = [];
@@ -101,34 +92,42 @@ function App() {
     if (canWrite) setSettings(value);
     else showReadOnlyMessage();
   };
-  
+
   // --- Data States ---
   const [services, setServices] = useState<Service[]>(() => {
     try {
       const saved = localStorage.getItem('taller_services');
       return saved ? JSON.parse(saved) : initialServices;
-    } catch (error) { return initialServices; }
+    } catch (error) {
+      return initialServices;
+    }
   });
 
   const [costs, setCosts] = useState<Cost[]>(() => {
     try {
       const saved = localStorage.getItem('taller_costs');
       return saved ? JSON.parse(saved) : initialCosts;
-    } catch (error) { return initialCosts; }
+    } catch (error) {
+      return initialCosts;
+    }
   });
 
   const [quotes, setQuotes] = useState<Quote[]>(() => {
     try {
       const saved = localStorage.getItem('taller_quotes');
       return saved ? JSON.parse(saved) : initialQuotes;
-    } catch (error) { return initialQuotes; }
+    } catch (error) {
+      return initialQuotes;
+    }
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('taller_settings');
       return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
-    } catch (error) { return defaultSettings; }
+    } catch (error) {
+      return defaultSettings;
+    }
   });
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -154,8 +153,7 @@ function App() {
       persistLocal('taller_settings', settings);
       return;
     }
-    ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings']
-      .forEach((key) => localStorage.removeItem(key));
+    ['taller_services', 'taller_costs', 'taller_quotes', 'taller_settings'].forEach((key) => localStorage.removeItem(key));
   }, [user, cloudReady, services, costs, quotes, settings]);
 
   // Firestore es la fuente de verdad; la caché persistente se mantiene en IndexedDB.
@@ -179,23 +177,32 @@ function App() {
         const canMigrateLocalData = !localOwner || localOwner === user.uid;
         const fallback = canMigrateLocalData
           ? { services, costs, quotes, settings }
-          : { services: initialServices, costs: initialCosts, quotes: initialQuotes, settings: defaultSettings };
+          : {
+              services: initialServices,
+              costs: initialCosts,
+              quotes: initialQuotes,
+              settings: defaultSettings
+            };
         await migrateWorkshopData(user.uid, fallback);
         if (cancelled) return;
         stopAccount = subscribeToAccount(user.uid, setAccount, () => setSyncStatus('error'));
-        stopWorkshop = subscribeToWorkshopState(user.uid, (remoteState) => {
-          lastCloudState.current = remoteState;
-          setServices(remoteState.services);
-          setCosts(remoteState.costs);
-          setQuotes(remoteState.quotes);
-          setSettings({ ...defaultSettings, ...remoteState.settings });
-          localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
-          setCloudReady(true);
-          setSyncStatus('synced');
-        }, () => {
-          setCloudReady(true);
-          setSyncStatus('error');
-        });
+        stopWorkshop = subscribeToWorkshopState(
+          user.uid,
+          (remoteState) => {
+            lastCloudState.current = remoteState;
+            setServices(remoteState.services);
+            setCosts(remoteState.costs);
+            setQuotes(remoteState.quotes);
+            setSettings({ ...defaultSettings, ...remoteState.settings });
+            localStorage.setItem(LOCAL_OWNER_KEY, user.uid);
+            setCloudReady(true);
+            setSyncStatus('synced');
+          },
+          () => {
+            setCloudReady(true);
+            setSyncStatus('error');
+          }
+        );
         recordActivity(user.uid).catch(() => undefined);
       } catch {
         setCloudReady(true);
@@ -245,7 +252,9 @@ function App() {
   };
 
   useEffect(() => {
-    const handleFullscreenChange = () => { setIsFullscreen(!!document.fullscreenElement); };
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
@@ -253,22 +262,22 @@ function App() {
   const renderView = () => {
     // Permitir ver la Guía y la Configuración (donde está el Login) sin estar autenticado
     if ((!user || !user.emailVerified) && currentView !== AppView.GUIDE && currentView !== AppView.SETTINGS) {
-        return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
+      return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
     }
 
-    switch(currentView) {
+    switch (currentView) {
       case AppView.DASHBOARD:
         return <Dashboard services={services} costs={costs} setServices={setServicesSafely} setCosts={setCostsSafely} />;
       case AppView.SERVICES:
         // Solo Admin y Profesor ven Servicios
         if (role === 'admin' || role === 'profesor') {
-            return (
-              <div className="space-y-4">
-                <WorkshopAiTools mode="services" services={services} quotes={quotes} settings={settings} setServices={setServicesSafely} />
-                <WorkshopIntegrations mode="services" services={services} quotes={quotes} setServices={setServicesSafely} />
-                <Services services={services} setServices={setServicesSafely} settings={settings} />
-              </div>
-            );
+          return (
+            <div className="space-y-4">
+              <WorkshopAiTools mode="services" services={services} quotes={quotes} settings={settings} setServices={setServicesSafely} />
+              <WorkshopIntegrations mode="services" services={services} quotes={quotes} setServices={setServicesSafely} />
+              <Services services={services} setServices={setServicesSafely} settings={settings} />
+            </div>
+          );
         }
         return <div className="p-10 text-center text-slate-400">No tienes permiso para gestionar servicios.</div>;
       case AppView.QUOTES:
@@ -282,24 +291,11 @@ function App() {
       case AppView.COSTS:
         // Solo el Admin ve los Costos reales
         if (role === 'admin') {
-            return <Costs costs={costs} setCosts={setCostsSafely} />;
+          return <Costs costs={costs} setCosts={setCostsSafely} />;
         }
         return <div className="p-10 text-center text-slate-400">Acceso restringido: Solo Administración puede ver costos.</div>;
       case AppView.SETTINGS:
-        return <Settings 
-          user={user}
-          settings={settings} 
-          setSettings={setSettingsSafely}
-          services={services}
-          setServices={setServicesSafely}
-          costs={costs}
-          setCosts={setCostsSafely}
-          quotes={quotes}
-          setQuotes={setQuotesSafely}
-          syncStatus={syncStatus}
-          account={account}
-          canWrite={canWrite}
-        />;
+        return <Settings user={user} settings={settings} setSettings={setSettingsSafely} services={services} setServices={setServicesSafely} costs={costs} setCosts={setCostsSafely} quotes={quotes} setQuotes={setQuotesSafely} syncStatus={syncStatus} account={account} canWrite={canWrite} />;
       case AppView.GUIDE:
         return <Guide onStart={() => setCurrentView(AppView.SETTINGS)} />;
       default:
@@ -308,27 +304,47 @@ function App() {
   };
 
   const getViewTitle = () => {
-    switch(currentView) {
-      case AppView.DASHBOARD: return 'Dashboard';
-      case AppView.SERVICES: return 'Gestión de Servicios';
-      case AppView.QUOTES: return 'Cotizaciones';
-      case AppView.COSTS: return 'Control de Costos';
-      case AppView.SETTINGS: return 'Configuración';
-      case AppView.GUIDE: return 'Guía del Taller';
-      default: return 'Gestión Taller';
+    switch (currentView) {
+      case AppView.DASHBOARD:
+        return 'Dashboard';
+      case AppView.SERVICES:
+        return 'Gestión de Servicios';
+      case AppView.QUOTES:
+        return 'Cotizaciones';
+      case AppView.COSTS:
+        return 'Control de Costos';
+      case AppView.SETTINGS:
+        return 'Configuración';
+      case AppView.GUIDE:
+        return 'Guía del Taller';
+      default:
+        return 'Gestión Taller';
     }
   };
 
   // Helper to get text color based on theme
   const getThemeColorClass = () => {
-    switch(settings.themeColor) {
-      case 'purple': return 'text-purple-500';
-      case 'emerald': return 'text-emerald-500';
-      case 'orange': return 'text-orange-500';
-      case 'red': return 'text-red-500';
-      default: return 'text-blue-500';
+    switch (settings.themeColor) {
+      case 'purple':
+        return 'text-purple-500';
+      case 'emerald':
+        return 'text-emerald-500';
+      case 'orange':
+        return 'text-orange-500';
+      case 'red':
+        return 'text-red-500';
+      default:
+        return 'text-blue-500';
     }
   };
+
+  if (user?.emailVerified && cloudReady && account?.mustChangePassword) {
+    return (
+      <Suspense fallback={null}>
+        <ClientPasswordChange user={user} />
+      </Suspense>
+    );
+  }
 
   if (user?.emailVerified && cloudReady && account && !account.onboardingCompleted) {
     return (
@@ -341,51 +357,33 @@ function App() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
       {/* Mobile Menu Overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
-      )}
-      
+      {isMobileMenuOpen && <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
+
       {/* Sidebar (Mobile Wrapper) */}
       <div className={`fixed inset-y-0 left-0 z-50 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none`}>
-        <Sidebar 
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-          onNavigate={() => setIsMobileMenuOpen(false)}
-          settings={settings}
-          user={user}
-        />
+        <Sidebar currentView={currentView} setCurrentView={setCurrentView} onNavigate={() => setIsMobileMenuOpen(false)} settings={settings} user={user} />
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-950">
-        
         {/* Unified Header */}
         <header className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 sticky top-0 z-30">
           <div className="flex items-center gap-4">
-             {/* Mobile Menu Toggle */}
-             <button 
-               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
-               className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-             >
-                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-             </button>
-             
-             {/* Title */}
-             <div>
-               <h1 className="md:hidden font-bold text-lg text-white tracking-tight truncate max-w-[200px]">
-                 {settings.companyName}
-               </h1>
-               <h2 className="hidden md:block text-lg font-semibold text-white">{getViewTitle()}</h2>
-             </div>
+            {/* Mobile Menu Toggle */}
+            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+
+            {/* Title */}
+            <div>
+              <h1 className="md:hidden font-bold text-lg text-white tracking-tight truncate max-w-[200px]">{settings.companyName}</h1>
+              <h2 className="hidden md:block text-lg font-semibold text-white">{getViewTitle()}</h2>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button 
-              onClick={toggleFullScreen} 
-              className={`p-2.5 rounded-lg transition-all active:scale-95 ${isFullscreen ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} 
-              aria-label="Pantalla completa"
-            >
-               {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            <button onClick={toggleFullScreen} className={`p-2.5 rounded-lg transition-all active:scale-95 ${isFullscreen ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} aria-label="Pantalla completa">
+              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
             </button>
           </div>
         </header>
@@ -402,9 +400,7 @@ function App() {
                 </div>
               </div>
             )}
-            <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400">Cargando módulo…</div>}>
-              {renderView()}
-            </Suspense>
+            <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400">Cargando módulo…</div>}>{renderView()}</Suspense>
           </div>
         </main>
       </div>
