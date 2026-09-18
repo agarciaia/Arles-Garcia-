@@ -14,8 +14,57 @@ Requisito: Node.js 20 o superior.
 
 1. Instala dependencias: `npm install`
 2. Inicia el entorno: `npm run dev`
-3. Ejecuta las pruebas: `npm test`
-4. Genera la versión de producción: `npm run build`
+3. Ejecuta el typecheck: `npm run typecheck`
+4. Ejecuta las pruebas: `npm test`
+5. Genera la versión de producción: `npm run build`
+
+## IA, voz y API Hub
+
+Gestión Taller reutiliza `api-hub/` y expone las funciones de IA únicamente mediante endpoints protegidos en `/api/*`.
+
+Funciones disponibles en la aplicación:
+
+- **Crear orden por voz:** graba desde el navegador, transcribe con Groq Whisper y prepara un borrador estructurado. La orden no se guarda hasta que el usuario la revisa y confirma.
+- **Router multi-IA:** el chat, la preparación de órdenes, el análisis de servicios y los mensajes al cliente usan el router del API Hub y pueden continuar con otro proveedor configurado si uno falla.
+- **Análisis de servicio:** entrega resumen, trabajos detectados, repuestos mencionados, información faltante, preguntas sugeridas y un mensaje breve. Se presenta siempre como sugerencia, no como diagnóstico definitivo.
+- **Mensajes para clientes:** genera vistas previas editables para recepción, cotización lista, trabajo terminado y saldo pendiente. Nunca envía WhatsApp automáticamente.
+- **VIN:** permite consultar un VIN válido. Usa CarVector cuando está configurado y, si no está disponible o falla, utiliza NHTSA vPIC como respaldo público. Solo aplica datos devueltos por el proveedor y nunca trata una patente como VIN.
+
+Endpoints principales:
+
+- `POST /api/ai/chat`
+- `POST /api/ai/transcribe`
+- `POST /api/ai/workshop-intake`
+- `POST /api/ai/analyze-service`
+- `POST /api/ai/customer-message`
+- `GET /api/ai/status`
+- `POST /api/vehicle/vin`
+
+Todos requieren una sesión Firebase válida. El frontend envía el ID token y el backend lo valida antes de utilizar cualquier proveedor externo.
+
+## Variables de entorno
+
+Usa `.env.example` como inventario y configura los secretos en **Vercel Environment Variables** o en tu entorno local privado. Nunca escribas claves reales en GitHub.
+
+Para la función de voz se necesita:
+
+- `GROQ_API_KEY`
+
+Para las funciones de texto configura al menos un proveedor compatible, por ejemplo:
+
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
+- `CEREBRAS_API_KEY`
+- `MISTRAL_API_KEY`
+
+El router puede usar otros proveedores incluidos en `api-hub` si están configurados.
+
+Para VIN no es obligatorio configurar una clave: NHTSA vPIC funciona como respaldo público. Si quieres usar CarVector como proveedor principal, configura:
+
+- `CARVECTOR_API_KEY`
+- `CARVECTOR_VIN_PATH_TEMPLATE` con `{vin}` en la ruta oficial correspondiente a tu cuenta/plan.
+
+Si una credencial opcional falta, solo queda inactiva la integración que la necesita; el resto de Gestión Taller continúa funcionando. En el caso de VIN, el sistema puede seguir utilizando NHTSA vPIC.
 
 ## Datos y seguridad
 
@@ -23,7 +72,9 @@ Requisito: Node.js 20 o superior.
 - Los datos operativos se sincronizan con Firestore bajo el UID de cada cuenta y conservan una copia local para trabajo sin conexión.
 - Las fotografías se comprimen en el dispositivo y se guardan de forma privada en Firebase Storage bajo el UID de cada taller.
 - Las reglas incluidas en `firestore.rules` y `storage.rules` deben publicarse en el proyecto Firebase antes de poner la aplicación en producción.
-- Ninguna clave de Gemini debe incluirse en el navegador. Las funciones de IA deben llamar a un endpoint protegido del servidor bajo `/api/gemini/*`.
+- Ninguna clave de Groq, OpenRouter, Gemini, CarVector ni de otro proveedor privado debe incluirse en el navegador.
+- Las funciones de IA se ejecutan en endpoints protegidos bajo `/api/ai/*` y leen secretos mediante `process.env` solo en servidor.
+- `services/aiSecurity.test.ts` protege contra regresiones que intenten exponer credenciales privadas en código de navegador.
 
 ## Despliegue de reglas
 
