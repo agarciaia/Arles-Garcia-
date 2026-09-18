@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import SuperAdmin from './components/SuperAdmin';
 import './index.css';
 
 // Mantener la PWA instalada alineada con la última versión publicada.
@@ -19,7 +20,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
-        updateViaCache: 'none',
+        updateViaCache: 'none'
       });
 
       const activateWaitingWorker = () => {
@@ -56,12 +57,8 @@ if ('serviceWorker' in navigator) {
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
+  throw new Error('Could not find root element to mount to');
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+root.render(<React.StrictMode>{window.location.pathname === '/superadmin' ? <SuperAdmin /> : <App />}</React.StrictMode>);

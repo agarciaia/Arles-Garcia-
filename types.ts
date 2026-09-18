@@ -1,4 +1,3 @@
-
 export interface ServiceExpense {
   id: string;
   description: string; // ej: "Rectificación de culata", "Pastillas de freno"
@@ -25,7 +24,7 @@ export interface Service {
   mileage?: number;
   reason: string;
   observations?: string;
-  
+
   // Financials
   price: number; // Legacy compatibility (Base Labor)
   laborItems?: ServiceExpense[];
@@ -33,13 +32,13 @@ export interface Service {
   laborDiscount?: number; // Value of discount
   laborDiscountType?: 'percent' | 'fixed'; // Type of discount
   laborDiscountReason?: string; // Reason for the discount
-  
+
   advance?: number;
   payments?: ServicePayment[]; // New field for detailed payment tracking
-  
+
   // Media
   photos?: string[]; // URLs de Storage; las copias antiguas pueden contener Base64.
-  
+
   entryDate: string;
   status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
 }
@@ -65,7 +64,7 @@ export interface Quote {
   phone?: string;
   vehicle: string; // Brand + Model + Plate
   date: string;
-  
+
   // Split structure
   laborItems?: QuoteItem[];
   expenseItems?: QuoteItem[];
@@ -73,11 +72,11 @@ export interface Quote {
   laborDiscount?: number; // Value of discount
   laborDiscountType?: 'percent' | 'fixed'; // Type of discount
   laborDiscountReason?: string; // Reason for the discount
-  
+
   notes?: string;
   total: number;
   validityDays: number;
-  
+
   // New field for workflow
   status?: 'pending' | 'accepted' | 'rejected';
 }
@@ -108,6 +107,9 @@ export type AccountStatus = 'trialing' | 'active' | 'past_due' | 'suspended';
 export interface AccountInfo {
   uid: string;
   email: string;
+  businessName?: string;
+  username?: string;
+  managed?: boolean;
   plan: AccountPlan;
   status: AccountStatus;
   trialStartedAt?: string;
@@ -121,6 +123,7 @@ export interface AccountInfo {
   lastSeenAt?: string;
   firstServiceAt?: string;
   createdAt?: string;
+  mustChangePassword?: boolean;
 }
 
 export type UserRole = 'admin' | 'profesor' | 'alumno' | 'guest';
