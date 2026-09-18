@@ -2,25 +2,10 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function accountCanWrite(uid) {
-      let account = firestore.get(/databases/(default)/documents/accounts/$(uid)).data;
-      return request.auth != null
-        && request.auth.uid == uid
-        && request.auth.token.email_verified == true
-        && account.status != 'suspended'
-        && ((account.status == 'trialing' && account.trialEndsAt > request.time)
-          || (account.status == 'active' && account.paidThrough > request.time));
-    }
-    function accountCanRead(uid) {
-      let account = firestore.get(/databases/(default)/documents/accounts/$(uid)).data;
-      return request.auth != null
-        && request.auth.uid == uid
-        && request.auth.token.email_verified == true
-        && account.status != 'suspended';
-    }
     match /users/{uid}/services/{serviceId}/{fileName} {
-      allow read: if accountCanRead(uid);
-      allow write: if accountCanWrite(uid)
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
         && (request.resource == null || (
           request.resource.size < 2 * 1024 * 1024
           && request.resource.contentType.matches('image/.*')
