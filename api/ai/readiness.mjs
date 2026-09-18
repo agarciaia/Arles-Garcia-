@@ -9,11 +9,15 @@ export default async function handler(req, res) {
       .filter((item) => item.configured)
       .map((item) => item.name);
 
+    const carVectorReady = providerStatus('carvector').configured
+      && Boolean(process.env.CARVECTOR_VIN_PATH_TEMPLATE);
+
     sendJson(res, 200, {
       ok: true,
       aiConfigured: configuredProviders.length > 0,
       voiceConfigured: providerStatus('groq').configured,
-      vinConfigured: providerStatus('carvector').configured && Boolean(process.env.CARVECTOR_VIN_PATH_TEMPLATE),
+      vinConfigured: true,
+      vinProvider: carVectorReady ? 'carvector+nhtsa-fallback' : 'nhtsa-vpic',
     });
   } catch (error) {
     handleApiError(res, error);

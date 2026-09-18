@@ -39,24 +39,34 @@ function normalizeProviderVehicle(raw) {
   };
 }
 
+async function decodeWithNhtsa(vin) {
+  const url = `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Gestion-Taller/1.0',
+    },
+  });
+
+  if (!response.ok) {
+    const error = new Error(`No fue posible consultar el decoder VIN de respaldo (${response.status}).`);
+    error.statusCode = 502;
+    error.code = 'vin_fallback_failed';
+    throw error;
+  }
+
+  const payload = await response.json();
+  const result = Array.isArray(payload?.Results) ? payload.Results[0] : null;
+  return {
+    vehicle: normalizeProviderVehicle(result || {}),
+    raw: result || {},
+  };
+}
+
 export default async function handler(req, res) {
   try {
     requireMethod(req, 'POST');
     await requireFirebaseUser(req);
-    if (!providerStatus('carvector').configured) {
-      const error = new Error('La consulta VIN aún no está disponible. Falta configurar CarVector.');
-      error.statusCode = 503;
-      error.code = 'carvector_not_configured';
-      throw error;
-    }
-
-    const pathTemplate = cleanString(process.env.CARVECTOR_VIN_PATH_TEMPLATE, 500);
-    if (!pathTemplate || !pathTemplate.includes('{vin}')) {
-      const error = new Error('La consulta VIN requiere configurar la ruta oficial de CarVector.');
-      error.statusCode = 503;
-      error.code = 'carvector_vin_path_not_configured';
-      throw error;
-    }
 
     const body = await readJson(req);
     const vin = cleanString(body.vin, 40).toUpperCase();
@@ -67,10 +77,36 @@ export default async function handler(req, res) {
       throw error;
     }
 
-    const path = pathTemplate.replace('{vin}', encodeURIComponent(vin));
-    const raw = await carVectorRequest(path, { method: 'GET' });
-    const vehicle = normalizeProviderVehicle(raw);
-    sendJson(res, 200, { vehicle, fieldsFound: Object.keys(vehicle) });
+    const pathTemplate = cleanString(process.env.CARVECTOR_VIN_PATH_TEMPLATE, 500);
+    const carVectorConfigured = providerStatus('carvector').configured
+      && Boolean(pathTemplate)
+      && pathTemplate.includes('{vin}');
+
+    if (carVectorConfigured) {
+      try {
+        const path = pathTemplate.replace('{vin}', encodeURIComponent(vin));
+        const raw = await carVectorRequest(path, { method: 'GET' });
+        const vehicle = normalizeProviderVehicle(raw);
+        if (Object.keys(vehicle).length > 0) {
+          sendJson(res, 200, {
+            vehicle,
+            fieldsFound: Object.keys(vehicle),
+            provider: 'carvector',
+          });
+          return;
+        }
+      } catch {
+        // Si CarVector falla o no entrega datos útiles, usar el decoder público de respaldo.
+      }
+    }
+
+    const fallback = await decodeWithNhtsa(vin);
+    sendJson(res, 200, {
+      vehicle: fallback.vehicle,
+      fieldsFound: Object.keys(fallback.vehicle),
+      provider: 'nhtsa-vpic',
+      fallback: true,
+    });
   } catch (error) {
     handleApiError(res, error);
   }
