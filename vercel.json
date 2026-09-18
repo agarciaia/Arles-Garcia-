@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/superadmin", "destination": "/index.html" },
     { "source": "/api/admin/password", "destination": "/api/management?action=admin-password" },
     { "source": "/api/admin/session", "destination": "/api/management?action=admin-session" },
     { "source": "/api/admin/workshops", "destination": "/api/management?action=admin-workshops" },
@@ -27,6 +28,12 @@
     },
     {
       "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/superadmin",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
       ]
